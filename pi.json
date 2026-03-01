@@ -1,0 +1,39 @@
+{
+    "name": "PTrust Oracle",
+    "version": "1.0.0",
+    "description": "Secure escrow service for Pi Network transactions",
+    "repository": "",
+    "keywords": [
+        "escrow",
+        "payments",
+        "pi-network"
+    ],
+    "main": "app/page.tsx",
+    "scripts": {
+        "start": "next start"
+    },
+    "pi": {
+        "app_id": "ptrust-oracle",
+        "scopes": [
+            "username",
+            "payments",
+            "wallet_address"
+        ],
+        "permissions": [
+            "read",
+            "write"
+        ],
+        "categories": [
+            "finance",
+            "payments"
+        ],
+        "languages": [
+            "en",
+            "ar"
+        ],
+        "platforms": [
+            "web",
+            "mobile"
+        ]
+    }
+}
