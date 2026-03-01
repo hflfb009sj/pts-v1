@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/mongodb';
-import { completePiPayment } from '@/app/lib/pi-server';
+import { getDb } from '@/lib/mongodb';
+import { completePiPayment } from '@/lib/pi-server';
 
 export async function POST(request: NextRequest) {
     try {

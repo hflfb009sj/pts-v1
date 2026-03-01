@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/mongodb';
-import { approvePiPayment } from '@/app/lib/pi-server';
+import { getDb } from '@/lib/mongodb';
+import { approvePiPayment } from '@/lib/pi-server';
 import { ORACLE_CONFIG } from '@/app/constants';
 
 export async function POST(request: NextRequest) {
