@@ -2,7 +2,6 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { PiSDKProvider } from '@/components/PiSDKProvider';
-import Script from 'next/script';
 import React from 'react';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -19,13 +18,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <head>
-        {/* Load Pi SDK before anything else */}
-        <Script
-          src="https://sdk.minepi.com/pi-sdk.js"
-          strategy="beforeInteractive"
-        />
-      </head>
       <body className={inter.className}>
         <PiSDKProvider>
           {children}
