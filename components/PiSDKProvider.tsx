@@ -12,75 +12,50 @@ interface PiContextType {
 
 const PiContext = createContext<PiContextType | undefined>(undefined);
 
-/**
- * PiSDKProvider handles the initialization and authentication logic
- * for the Pi Network environment.
- */
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<PiUser | null>(null);
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState<boolean>(false);
 
-    /**
-     * Required by Pi Network: Logic to handle payments that were interrupted
-     */
     const onIncompletePaymentFound = useCallback((payment: any) => {
-        console.warn('[PTrust Oracle] Incomplete payment found. System recovery required:', payment);
-        // Implement server-side logic here to resolve stuck transactions
+        console.warn('[PTrust Oracle] Incomplete payment found:', payment);
     }, []);
 
-    /**
-     * Initializes the Pi SDK and sets the environment to Sandbox
-     */
     const initPi = useCallback(() => {
         const piWindow = (window as any).Pi;
-
         if (piWindow) {
             try {
-                console.log('[PTrust Oracle] Initializing Pi SDK (Sandbox Mode)...');
                 (piWindow as PiSDK).init({
                     version: '2.0',
-                    sandbox: true // Important: Ensure this is true for Testnet
+                    sandbox: true
                 });
-                console.log('[PTrust Oracle] Pi SDK successfully initialized.');
+                console.log('[PTrust Oracle] Pi SDK initialized.');
             } catch (error) {
                 console.error('[PTrust Oracle] Failed to initialize Pi SDK:', error);
-            } finally {
-                setLoading(false);
             }
         }
     }, []);
 
-    /**
-     * Handles the OAuth flow with Pi Network
-     */
     const authenticateUser = async () => {
         const piWindow = (window as any).Pi;
-
         if (!piWindow) {
-            console.error('[PTrust Oracle] Authentication failed: Pi SDK not found in window.');
+            console.error('[PTrust Oracle] Pi SDK not found.');
             return;
         }
-
         setLoading(true);
         try {
-            console.log('[PTrust Oracle] Requesting user authentication...');
-
-            // Scope 'payments' is required for Escrow functionality
             const auth: PiAuthenticationResult = await (piWindow as PiSDK).authenticate(
                 ['username', 'payments', 'wallet_address'],
                 onIncompletePaymentFound
             );
-
             setUser(auth.user);
-            console.log('[PTrust Oracle] User authenticated successfully:', auth.user.username);
+            console.log('[PTrust Oracle] Authenticated:', auth.user.username);
         } catch (error) {
-            console.error('[PTrust Oracle] Authentication process rejected:', error);
+            console.error('[PTrust Oracle] Authentication failed:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    // Backup check if the script loads before the component mounts
     useEffect(() => {
         if ((window as any).Pi) {
             initPi();
@@ -93,7 +68,7 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
                 src="https://sdk.minepi.com/pi-sdk.js"
                 strategy="lazyOnload"
                 onLoad={initPi}
-                onError={() => console.error('[PTrust Oracle] Critical Error: Pi SDK script failed to load.')}
+                onError={() => console.error('[PTrust Oracle] Pi SDK failed to load.')}
             />
             {children}
         </PiContext.Provider>
