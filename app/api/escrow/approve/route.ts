@@ -6,9 +6,8 @@ import { ORACLE_CONFIG } from '@/app/constants';
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { paymentId, sellerWallet, amount, fee, description, buyerUsername } = body;
-
-        if (!paymentId) return NextResponse.json({ success: false, error: 'paymentId is required' }, { status: 400 });
+        const { sellerWallet, amount, fee, description, buyerUsername } = body;
+        const paymentId = body.paymentId || 'escrow_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         if (!sellerWallet?.trim()) return NextResponse.json({ success: false, error: 'sellerWallet is required' }, { status: 400 });
         if (!amount || amount < ORACLE_CONFIG.MIN_TRANSACTION) return NextResponse.json({ success: false, error: `Minimum amount is ${ORACLE_CONFIG.MIN_TRANSACTION} π` }, { status: 400 });
         if (amount > ORACLE_CONFIG.MAX_TRANSACTION) return NextResponse.json({ success: false, error: `Maximum amount is ${ORACLE_CONFIG.MAX_TRANSACTION} π` }, { status: 400 });
