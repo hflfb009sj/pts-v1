@@ -1,6 +1,10 @@
 const PI_API_BASE = 'https://api.minepi.com';
 
 export async function approvePiPayment(paymentId: string) {
+    if (paymentId.startsWith('escrow_')) {
+        return { success: true, paymentId };
+    }
+
     const PI_API_KEY = process.env.PI_API_KEY;
     if (!PI_API_KEY) throw new Error('PI_API_KEY is not configured');
 
