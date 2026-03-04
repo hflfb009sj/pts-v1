@@ -1,41 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
 
 export async function GET(
-    _request: NextRequest,
-    { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: { id: string } }
 ) {
-    try {
-        const id = params.id;
-        if (!id) return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
+  try {
+    const db = await getDb();
+    const transactions = db.collection('transactions');
 
-        const db = await getDb();
-        let transaction: any = null;
+    const escrowCode = params.id.toUpperCase();
+    const tx = await transactions.findOne({ escrowCode });
 
-        try {
-            transaction = await db.collection('transactions').findOne({ _id: new ObjectId(id) });
-        } catch {
-            transaction = await db.collection('transactions').findOne({ paymentId: id });
-        }
-
-        if (!transaction) return NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 });
-
-        const dispute = transaction.status === 'DISPUTED'
-            ? await db.collection('disputes').findOne({ transactionId: transaction._id })
-            : null;
-
-        return NextResponse.json({
-            success: true,
-            data: {
-                ...transaction,
-                id: `#TR-${transaction._id.toString().slice(-6).toUpperCase()}`,
-                dispute: dispute || null,
-            },
-        });
-
-    } catch (error: any) {
-        console.error('[Transaction GET]', error);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (!tx) {
+      return NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 });
     }
+
+    const { secretKey, ...safeTx } = tx;
+    return NextResponse.json({ success: true, transaction: safeTx });
+
+  } catch (error: any) {
+    console.error('[Transaction]', error);
+    return NextResponse.json({ success: false, error: error.message || 'Failed to fetch transaction' }, { status: 500 });
+  }
 }

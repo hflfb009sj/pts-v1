@@ -1,32 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
-import { completePiPayment } from '@/lib/pi-server';
 
 export async function POST(request: NextRequest) {
-    try {
-        const body = await request.json();
-        const { paymentId, txid } = body;
+  try {
+    const { escrowCode, sellerUsername } = await request.json();
 
-        if (!paymentId) return NextResponse.json({ success: false, error: 'paymentId is required' }, { status: 400 });
-        if (!txid) return NextResponse.json({ success: false, error: 'txid is required' }, { status: 400 });
+    if (!escrowCode) return NextResponse.json({ success: false, error: 'escrowCode is required' }, { status: 400 });
 
-        const db = await getDb();
-        const transaction = await db.collection('transactions').findOne({ paymentId });
+    const db = await getDb();
+    const transactions = db.collection('transactions');
 
-        if (!transaction) return NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 });
-        if (transaction.txid) return NextResponse.json({ success: true, status: transaction.status });
+    const tx = await transactions.findOne({ escrowCode: escrowCode.toUpperCase() });
+    if (!tx) return NextResponse.json({ success: false, error: 'Escrow not found' }, { status: 404 });
+    if (tx.status !== 'LOCKED') return NextResponse.json({ success: false, error: 'Escrow is not in LOCKED status' }, { status: 400 });
 
-        await completePiPayment(paymentId, txid);
+    await transactions.updateOne(
+      { escrowCode: escrowCode.toUpperCase() },
+      { $set: { status: 'DELIVERED', sellerUsername: sellerUsername || 'unknown', updatedAt: new Date(), deliveredAt: new Date() } }
+    );
 
-        await db.collection('transactions').updateOne(
-            { paymentId },
-            { $set: { txid, status: 'LOCKED', updatedAt: new Date() } }
-        );
+    return NextResponse.json({ success: true, message: 'Delivery confirmed', escrowCode });
 
-        return NextResponse.json({ success: true, txid, status: 'LOCKED' });
-
-    } catch (error: any) {
-        console.error('[Complete]', error);
-        return NextResponse.json({ success: false, error: error.message || 'Completion failed' }, { status: 500 });
-    }
+  } catch (error: any) {
+    console.error('[Complete]', error);
+    return NextResponse.json({ success: false, error: error.message || 'Completion failed' }, { status: 500 });
+  }
 }
