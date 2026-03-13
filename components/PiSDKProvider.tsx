@@ -26,7 +26,7 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
             try {
                 (piWindow as PiSDK).init({
                     version: '2.0',
-                    sandbox: true
+                    sandbox: false
                 });
                 console.log('[PTrust Oracle] Pi SDK initialized.');
             } catch (error) {

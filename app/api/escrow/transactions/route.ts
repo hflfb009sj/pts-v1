@@ -3,26 +3,17 @@ import { getDb } from '@/lib/mongodb';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const username = searchParams.get('username');
-
-    if (!username) return NextResponse.json({ success: false, error: 'username is required' }, { status: 400 });
-
+    const username = new URL(request.url).searchParams.get('username');
+    if (!username) throw new Error('username required');
     const db = await getDb();
-    const transactions = db.collection('transactions');
-
-    const txList = await transactions
+    const transactions = await db.collection('transactions')
       .find({ $or: [{ buyerUsername: username }, { sellerUsername: username }] })
       .sort({ createdAt: -1 })
-      .limit(20)
+      .limit(50)
+      .project({ buyerKey: 0, sellerKey: 0 })
       .toArray();
-
-    const safeTxList = txList.map(({ secretKey, ...tx }) => tx);
-
-    return NextResponse.json({ success: true, transactions: safeTxList });
-
+    return NextResponse.json({ success: true, transactions });
   } catch (error: any) {
-    console.error('[Transactions]', error);
-    return NextResponse.json({ success: false, error: error.message || 'Failed to fetch transactions' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

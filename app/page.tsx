@@ -1,15 +1,25 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, {
+  useState, useEffect, useMemo, useCallback, useRef,
+} from 'react';
 import { usePiSDK } from '@/components/PiSDKProvider';
 import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
-  HelpCircle, ChevronDown, ChevronUp, LogOut, Clock, Mail, Shield, Hash,
-  TrendingUp, Activity, ChevronRight, Eye, EyeOff, RefreshCw
+  ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info,
 } from 'lucide-react';
 
-/* ─────────────────────────── Types ─────────────────────────── */
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+interface PiUser { uid: string; username: string; }
+
+type TxStatus =
+  | 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'FROZEN'
+  | 'UNDER_REVIEW' | 'RELEASED' | 'REFUNDED' | 'PENDING_ADMIN' | 'EXPIRED';
+
 interface Transaction {
   _id: string;
   transactionNumber: string;
@@ -20,507 +30,1286 @@ interface Transaction {
   amount: number;
   fee: number;
   description: string;
-  status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RELEASED' | 'DISPUTED' | 'PENDING_ADMIN';
+  status: TxStatus;
   createdAt: string;
-  acceptedAt?: string;
   deliveredAt?: string;
+  frozenAt?: string;
   releasedAt?: string;
-  deliveryDeadline?: string;
   rating?: number;
-  releaseAttempts?: number;
+  sellerTxHash?: string;
 }
 
-/* ─────────────────────────── API ─────────────────────────── */
-async function createEscrow(data: { sellerWallet: string; amount: number; fee: number; description: string; buyerUsername: string }) {
-  const res = await fetch('/api/escrow/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Oracle Error'); }
-  return res.json();
-}
-async function fetchEscrowByCode(code: string) {
-  const res = await fetch('/api/escrow/transaction/' + code);
-  if (!res.ok) throw new Error('Escrow not found');
-  return res.json();
-}
-async function acceptDeal(escrowCode: string, sellerUsername: string) {
-  const res = await fetch('/api/escrow/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ escrowCode, sellerUsername }) });
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Accept failed'); }
-  return res.json();
-}
-async function confirmDelivery(escrowCode: string, sellerUsername: string) {
-  const res = await fetch('/api/escrow/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ escrowCode, sellerUsername }) });
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Delivery confirmation failed'); }
-  return res.json();
-}
-async function releaseEscrow(escrowCode: string, secretKey: string, confirmText: string, buyerUsername: string) {
-  const res = await fetch('/api/escrow/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ escrowCode, secretKey, confirmText, buyerUsername }) });
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Release failed'); }
-  return res.json();
-}
-async function fetchMyTransactions(username: string) {
-  const res = await fetch('/api/escrow/transactions?username=' + username);
-  if (!res.ok) throw new Error('Failed to load transactions');
-  return res.json();
-}
-async function submitRating(escrowCode: string, rating: number, raterUsername: string) {
-  const res = await fetch('/api/escrow/rate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ escrowCode, rating, raterUsername }) });
-  if (!res.ok) throw new Error('Rating failed');
-  return res.json();
+interface EscrowResult {
+  transactionNumber: string;
+  escrowCode: string;
+  buyerKey: string;
+  sellerKey: string;
 }
 
-/* ─────────────────────────── Hooks ─────────────────────────── */
-function useSessionTimer(onExpire: () => void) {
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const SESSION_DURATION = 30 * 60 * 1000;
-  const resetTimer = useCallback(() => {
+// ─────────────────────────────────────────────────────────────────────────────
+// API HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+async function apiFetch(url: string, body?: object) {
+  const opts: RequestInit = body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : { method: 'GET' };
+  const res  = await fetch(url, opts);
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION TIMER HOOK — 30-minute inactivity logout
+// ─────────────────────────────────────────────────────────────────────────────
+function useSessionTimer(onExpire: () => void, active: boolean) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reset = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(onExpire, SESSION_DURATION);
+    timerRef.current = setTimeout(onExpire, 30 * 60 * 1000);
   }, [onExpire]);
+
   useEffect(() => {
+    if (!active) return;
     const events = ['mousemove', 'keydown', 'touchstart', 'click'];
-    events.forEach(e => window.addEventListener(e, resetTimer));
-    resetTimer();
+    events.forEach(e => window.addEventListener(e, reset));
+    reset();
     return () => {
-      events.forEach(e => window.removeEventListener(e, resetTimer));
+      events.forEach(e => window.removeEventListener(e, reset));
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [resetTimer]);
+  }, [reset, active]);
 }
 
-/* ─────────────────────────── Sub-components ─────────────────────────── */
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; dot: string; label: string }> = {
-    PENDING:       { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/25',    dot: 'bg-amber-400',   label: 'Pending' },
-    ACCEPTED:      { bg: 'bg-orange-500/10 text-orange-400 border-orange-500/25', dot: 'bg-orange-400',  label: 'Locked' },
-    DELIVERED:     { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',          dot: 'bg-sky-400',     label: 'Delivered' },
-    RELEASED:      { bg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', label: 'Released' },
-    DISPUTED:      { bg: 'bg-rose-500/10 text-rose-400 border-rose-500/25',       dot: 'bg-rose-400',    label: 'Disputed' },
-    PENDING_ADMIN: { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25', dot: 'bg-violet-400',  label: 'Admin Review' },
-  };
-  const s = map[status] || map.PENDING;
+// ─────────────────────────────────────────────────────────────────────────────
+// DESIGN TOKENS
+// ─────────────────────────────────────────────────────────────────────────────
+const inputBase =
+  'w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 ' +
+  'focus:border-amber-500/50 outline-none text-sm transition-all ' +
+  'placeholder-neutral-700 text-neutral-200';
+
+const STATUS_MAP: Record<TxStatus, { bg: string; dot: string; label: string }> = {
+  PENDING:       { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/25',       dot: 'bg-amber-400',   label: 'Pending'      },
+  ACCEPTED:      { bg: 'bg-orange-500/10 text-orange-400 border-orange-500/25',    dot: 'bg-orange-400',  label: 'Accepted'     },
+  DELIVERED:     { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Delivered'    },
+  FROZEN:        { bg: 'bg-blue-500/10 text-blue-400 border-blue-500/25',          dot: 'bg-blue-400',    label: 'Frozen'       },
+  UNDER_REVIEW:  { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Under Review' },
+  RELEASED:      { bg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', label: 'Released'     },
+  REFUNDED:      { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Refunded'     },
+  PENDING_ADMIN: { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Admin Review' },
+  EXPIRED:       { bg: 'bg-neutral-500/10 text-neutral-500 border-neutral-500/25', dot: 'bg-neutral-500', label: 'Expired'      },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REUSABLE UI COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: TxStatus }) {
+  const s = STATUS_MAP[status] || STATUS_MAP.PENDING;
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] px-2.5 py-1 rounded-full border ${s.bg}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${s.dot} animate-pulse`} />
+    <span className={'inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] px-2.5 py-1 rounded-full border ' + s.bg}>
+      <span className={'w-1.5 h-1.5 rounded-full ' + s.dot} />
       {s.label}
     </span>
   );
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
+function CopyBtn({ text, label }: { text: string; label?: string }) {
+  const [ok, setOk] = useState(false);
   return (
     <button
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wide transition-all duration-200
-        ${copied ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400' : 'bg-white/5 border border-white/8 text-neutral-400 hover:text-white hover:bg-white/10 hover:border-white/15'}`}>
-      {copied ? <CheckCircle2 size={11} /> : <Copy size={11} className="group-hover:scale-110 transition-transform" />}
-      {copied ? 'Copied!' : label}
+      onClick={() => { navigator.clipboard.writeText(text); setOk(true); setTimeout(() => setOk(false), 2000); }}
+      className={
+        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ' +
+        (ok
+          ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+          : 'bg-white/5 border border-white/8 text-neutral-500 hover:text-white hover:bg-white/10')
+      }>
+      {ok ? <CheckCircle2 size={11} /> : <Copy size={11} />}
+      {ok ? 'Copied!' : (label ?? 'Copy')}
     </button>
   );
 }
 
-function StarRating({ onRate, value }: { onRate: (n: number) => void; value?: number }) {
-  const [hovered, setHovered] = useState(0);
-  const [selected, setSelected] = useState(value || 0);
+function Spin() {
+  return <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />;
+}
+
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={'bg-[#0d0d0d] border border-white/6 rounded-2xl ' + className}>
+      {children}
+    </div>
+  );
+}
+
+function ErrBox({ msg }: { msg: string }) {
+  return (
+    <div className="flex gap-2.5 text-rose-400 text-[11px] p-3.5 bg-rose-500/5 border border-rose-500/15 rounded-xl leading-relaxed">
+      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" /> {msg}
+    </div>
+  );
+}
+
+function OkBox({ msg }: { msg: string }) {
+  return (
+    <div className="flex gap-2.5 text-emerald-400 text-[11px] p-3.5 bg-emerald-500/5 border border-emerald-500/15 rounded-xl leading-relaxed">
+      <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" /> {msg}
+    </div>
+  );
+}
+
+function InfoBanner({ msg, color = 'amber' }: { msg: string; color?: 'amber' | 'blue' | 'sky' }) {
+  const c = {
+    amber: 'text-amber-400 bg-amber-500/5 border-amber-500/15',
+    blue:  'text-blue-400 bg-blue-500/5 border-blue-500/15',
+    sky:   'text-sky-400 bg-sky-500/5 border-sky-500/15',
+  }[color];
+  return (
+    <div className={'text-[11px] font-medium p-3.5 rounded-xl border leading-relaxed flex gap-2 ' + c}>
+      <Info size={12} className="flex-shrink-0 mt-0.5" /> {msg}
+    </div>
+  );
+}
+
+function SecHead({ Icon, title, sub }: { Icon: React.ElementType; title: string; sub?: string }) {
+  return (
+    <div className="flex items-start gap-3 mb-6">
+      <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
+        <Icon size={16} className="text-amber-400" />
+      </div>
+      <div>
+        <h2 className="text-base font-black text-white">{title}</h2>
+        {sub && <p className="text-[11px] text-neutral-500 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function PrimaryBtn({
+  children, disabled, onClick, type = 'button', variant = 'gold',
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+  type?: 'button' | 'submit';
+  variant?: 'gold' | 'white' | 'ghost' | 'danger';
+}) {
+  const s = {
+    gold:   'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]',
+    white:  'bg-white text-black hover:bg-amber-50',
+    ghost:  'bg-white/5 border border-white/10 text-white hover:bg-white/10',
+    danger: 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/15',
+  }[variant];
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className={
+        'w-full py-3.5 font-black rounded-xl transition-all duration-200 ' +
+        'active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed ' +
+        'flex items-center justify-center gap-2 text-[12px] tracking-wide ' + s
+      }>
+      {children}
+    </button>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-0.5">
+        <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">{label}</label>
+        {hint && <span className="text-[9px] text-neutral-600">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Stars({ value, onRate }: { value?: number; onRate?: (n: number) => void }) {
+  const [hov, setHov] = useState(0);
+  const [sel, setSel] = useState(value || 0);
   return (
     <div className="flex gap-1.5">
-      {[1,2,3,4,5].map(n => (
-        <button key={n}
-          onMouseEnter={() => setHovered(n)}
-          onMouseLeave={() => setHovered(0)}
-          onClick={() => { setSelected(n); onRate(n); }}
-          className="transition-all duration-150 hover:scale-110 active:scale-95">
-          <Star size={20}
-            className={n <= (hovered || selected) ? 'text-amber-400' : 'text-neutral-700'}
-            fill={n <= (hovered || selected) ? 'currentColor' : 'none'} />
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          disabled={!onRate}
+          onMouseEnter={() => onRate && setHov(n)}
+          onMouseLeave={() => onRate && setHov(0)}
+          onClick={() => { if (onRate) { setSel(n); onRate(n); } }}
+          className="transition-all hover:scale-110 disabled:cursor-default">
+          <Star
+            size={18}
+            className={n <= (hov || sel) ? 'text-amber-400' : 'text-neutral-700'}
+            fill={n <= (hov || sel) ? 'currentColor' : 'none'}
+          />
         </button>
       ))}
     </div>
   );
 }
 
-function HowItWorks() {
+function Accordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
-  const steps = [
-    { icon: '🛒', step: '01', title: 'Create Escrow', desc: 'Buyer enters seller wallet, amount, and deal terms. Share the Escrow Code with seller.' },
-    { icon: '🤝', step: '02', title: 'Seller Accepts', desc: 'Seller enters the code and accepts. Funds are locked in the Oracle vault.' },
-    { icon: '📦', step: '03', title: 'Confirm Delivery', desc: 'After sending goods, seller presses Confirm Delivery to signal completion.' },
-    { icon: '✅', step: '04', title: 'Release Funds', desc: 'Buyer verifies receipt using their Secret Key. Funds transfer to seller instantly.' },
-    { icon: '⚖️', step: '05', title: 'Dispute Resolution', desc: 'Any issue? Open a dispute. Our admin team reviews and rules with finality.' },
-  ];
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/6 bg-[#0d0d0d]">
-      <button onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-white/2 transition-colors">
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-lg bg-amber-500/15 flex items-center justify-center">
-            <HelpCircle size={13} className="text-amber-400" />
-          </div>
-          <span className="font-black text-xs tracking-wide text-neutral-300">How PTrust Works</span>
-        </div>
-        <div className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
-          <ChevronDown size={14} className="text-neutral-600" />
-        </div>
+    <div className={'rounded-2xl border overflow-hidden ' + (open ? 'border-amber-500/20' : 'border-white/6 bg-[#0d0d0d]')}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-4 gap-3 text-left">
+        <span className="text-[12px] font-black text-neutral-200 leading-snug">{q}</span>
+        <span className={'w-6 h-6 rounded-lg flex items-center justify-center text-sm transition-transform flex-shrink-0 ' +
+          (open ? 'bg-amber-500/15 text-amber-400 rotate-45' : 'bg-white/5 text-neutral-500')}>+</span>
       </button>
-      {open && (
-        <div className="border-t border-white/5 px-5 pb-5 pt-4 space-y-4">
-          {steps.map((s, i) => (
-            <div key={i} className="flex gap-3 items-start group">
-              <div className="flex-shrink-0 w-6 h-6 rounded-md bg-neutral-800 flex items-center justify-center text-[9px] font-black text-neutral-500 group-hover:bg-amber-500/15 group-hover:text-amber-400 transition-colors">
-                {s.step}
+      {open && <div className="px-5 pb-4 text-[11px] text-neutral-500 leading-relaxed border-t border-white/5 pt-3">{a}</div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATIC CONTENT
+// ─────────────────────────────────────────────────────────────────────────────
+const STEPS = [
+  { n: '01', who: 'Buyer',  color: '#f59e0b', title: 'Create Escrow',
+    body: 'Buyer pays via Pi Browser. Receives a private Buyer Key (keep it!) and a Seller Key to share with the seller.' },
+  { n: '02', who: 'Seller', color: '#38bdf8', title: 'Accept Deal',
+    body: 'Seller enters the Escrow Code and their Seller Key. Reviews terms and accepts. Funds stay locked.' },
+  { n: '03', who: 'Seller', color: '#38bdf8', title: 'Confirm Delivery',
+    body: 'Seller ships the item or completes the service, then presses Confirm Delivery.' },
+  { n: '04', who: 'Buyer',  color: '#22c55e', title: 'Release or Dispute',
+    body: '"Received" + Buyer Key → funds released instantly to seller.\n"Not Received" → funds freeze and a dispute opens.' },
+  { n: '05', who: 'System', color: '#a78bfa', title: 'Auto-Resolution',
+    body: 'If buyer ignores delivery for 15 days, funds auto-release to seller. Disputes are resolved by 3 neutral judges (2/3 majority).' },
+];
+
+const CATS = [
+  { e: '📱', t: 'Electronics',     d: 'Phones, laptops, cameras',      tags: ['Phones', 'Laptops', 'Cameras']  },
+  { e: '💎', t: 'Jewelry & Watches', d: 'Verify before releasing',      tags: ['Gold', 'Watches', 'Diamonds']   },
+  { e: '🛍️', t: 'General Goods',   d: 'Clothing, furniture, etc.',     tags: ['Clothing', 'Furniture', 'Sports']},
+  { e: '💻', t: 'Digital Services', d: 'Design, dev, content',          tags: ['Design', 'Dev', 'Content']      },
+  { e: '🏗️', t: 'Milestone Projects', d: 'Pay per milestone',          tags: ['Websites', 'Apps', 'Projects']  },
+  { e: '🎮', t: 'Gaming & Accounts', d: 'Accounts, items, keys',        tags: ['Accounts', 'Items', 'Codes']    },
+];
+
+const FAQS = [
+  { q: 'Are my funds safe if the website is hacked?',
+    a: 'Yes. Funds live on the Pi blockchain — not on our servers. Even if the site is compromised, nobody can move funds without your Buyer Key.' },
+  { q: 'What is the difference between Buyer Key and Seller Key?',
+    a: 'Buyer Key is yours alone — used to release funds or confirm receipt. Seller Key belongs to the seller — used to accept the deal. Neither party can act without their own key.' },
+  { q: 'What happens if I lose my Buyer Key?',
+    a: 'The key is shown only once. Save it immediately. If lost, contact support with proof of ownership and we will assist through the dispute resolution system.' },
+  { q: 'What does PTrust Oracle charge?',
+    a: 'Only 1% of the transaction amount, deducted automatically at release. No hidden fees, no setup costs.' },
+  { q: 'Who selects the judges?',
+    a: '3 judges are randomly selected from verified Pi pioneers with full KYC and no relation to the deal. Majority vote (2 of 3) decides the outcome.' },
+  { q: 'What if the seller never delivers?',
+    a: 'Open a dispute after the seller confirms delivery. Submit evidence within 15 days. Judges review and rule. If seller wins by default (no buyer evidence), funds auto-release after 15 days.' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LANDING PAGE (not logged in)
+// ─────────────────────────────────────────────────────────────────────────────
+function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }) {
+  const [section, setSection] = useState<string | null>(null);
+
+  const sections = [
+    {
+      key: 'how',
+      icon: '🔄',
+      title: 'How It Works',
+      sub: '5 steps that protect every deal',
+      content: (
+        <div>
+          {STEPS.map((s, i) => (
+            <div key={i} className={'flex gap-4 items-start py-3.5 ' + (i < STEPS.length - 1 ? 'border-b border-white/4' : '')}>
+              <div className="w-9 h-9 rounded-xl border flex items-center justify-center flex-shrink-0 text-[10px] font-black"
+                style={{ background: s.color + '12', borderColor: s.color + '30', color: s.color }}>
+                {s.n}
               </div>
-              <div className="pt-0.5">
-                <div className="text-[11px] font-black text-white">{s.title}</div>
-                <div className="text-[10px] text-neutral-500 mt-0.5 leading-relaxed">{s.desc}</div>
+              <div className="flex-1 pt-0.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[12px] font-black text-white">{s.title}</span>
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full"
+                    style={{ background: s.color + '12', color: s.color }}>{s.who}</span>
+                </div>
+                <p className="text-[11px] text-neutral-500 leading-relaxed whitespace-pre-line">{s.body}</p>
               </div>
             </div>
           ))}
         </div>
-      )}
-    </div>
-  );
-}
+      ),
+    },
+    {
+      key: 'use',
+      icon: '🛍️',
+      title: 'What Can I Secure?',
+      sub: '6 supported categories',
+      content: (
+        <div className="space-y-2">
+          {CATS.map((c, i) => (
+            <div key={i} className="flex items-start gap-3 p-3.5 rounded-xl bg-white/2 border border-white/4">
+              <span className="text-2xl flex-shrink-0">{c.e}</span>
+              <div>
+                <div className="text-[12px] font-black text-white">{c.t}</div>
+                <div className="text-[10px] text-neutral-600 mt-0.5">{c.d}</div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {c.tags.map(t => (
+                    <span key={t} className="text-[9px] px-2 py-0.5 rounded-full bg-white/4 border border-white/6 text-neutral-600">{t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'dispute',
+      icon: '⚖️',
+      title: 'Dispute System',
+      sub: '3 neutral judges · 15-day window · guaranteed resolution',
+      content: (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { e: '❌', l: 'Not Received',   sub: 'Instant freeze', c: '#ef4444' },
+              { e: '📋', l: '15-Day Evidence', sub: 'Both parties',   c: '#f59e0b' },
+              { e: '⚖️', l: 'Secret Vote',    sub: '2/3 decides',    c: '#22c55e' },
+            ].map(b => (
+              <div key={b.l} className="rounded-xl p-3 text-center"
+                style={{ background: b.c + '0d', border: '1px solid ' + b.c + '25' }}>
+                <div className="text-xl mb-1">{b.e}</div>
+                <div className="text-[10px] font-black" style={{ color: b.c }}>{b.l}</div>
+                <div className="text-[9px] text-neutral-600 mt-0.5">{b.sub}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl p-3.5 bg-amber-500/4 border border-amber-500/15">
+              <div className="text-[11px] font-black text-amber-400 mb-2">Buyer</div>
+              {['Funds locked before delivery', 'Buyer Key known only to you', '"Not Received" freezes instantly', '15 days to submit proof'].map(t => (
+                <div key={t} className="flex items-start gap-1.5 text-[10px] text-neutral-600 mb-1">
+                  <span className="text-emerald-500 flex-shrink-0">✓</span>{t}
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl p-3.5 bg-sky-500/4 border border-sky-500/15">
+              <div className="text-[11px] font-black text-sky-400 mb-2">Seller</div>
+              {['Funds confirmed before shipment', 'Seller Key proves acceptance', '15-day silence = auto-release', 'Judge protection against fraud'].map(t => (
+                <div key={t} className="flex items-start gap-1.5 text-[10px] text-neutral-600 mb-1">
+                  <span className="text-emerald-500 flex-shrink-0">✓</span>{t}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'faq',
+      icon: '❓',
+      title: 'FAQ',
+      sub: 'Common questions answered',
+      content: <div className="space-y-2">{FAQS.map((f, i) => <Accordion key={i} q={f.q} a={f.a} />)}</div>,
+    },
+  ];
 
-function InputField({ label, sublabel, children }: { label: string; sublabel?: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between px-0.5">
-        <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">{label}</label>
-        {sublabel && <span className="text-[9px] text-neutral-600">{sublabel}</span>}
+    <main className="min-h-screen bg-[#080808] text-white">
+      {/* Background glow */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-amber-500/[0.04] rounded-full blur-[100px]" />
+        <div className="absolute inset-0 opacity-[0.012]"
+          style={{ backgroundImage: 'linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)', backgroundSize: '60px 60px' }} />
       </div>
-      {children}
-    </div>
-  );
-}
 
-function ErrorBox({ message }: { message: string }) {
-  return (
-    <div className="flex items-start gap-2.5 text-rose-400 text-[11px] p-3.5 bg-rose-500/5 rounded-xl border border-rose-500/15 leading-relaxed">
-      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-      <span>{message}</span>
-    </div>
-  );
-}
+      <div className="relative max-w-sm mx-auto px-5 pb-16">
+        {/* Hero */}
+        <div className="flex flex-col items-center text-center pt-14 pb-10 space-y-5">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/4 border border-white/8 text-neutral-500 text-[9px] font-black tracking-[0.2em] uppercase">
+            <ShieldCheck size={11} className="text-amber-400" /> Pi Network Mainnet · Secured
+          </div>
 
-function SuccessBox({ message }: { message: string }) {
-  return (
-    <div className="flex items-start gap-2.5 text-emerald-400 text-[11px] p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/15 leading-relaxed">
-      <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" />
-      <span>{message}</span>
-    </div>
-  );
-}
+          <div>
+            <h1 className="text-[76px] font-black tracking-[-0.04em] leading-none" style={{ fontFamily: "'Georgia', serif" }}>
+              P<span className="text-transparent" style={{ WebkitTextStroke: '2.5px #f59e0b' }}>TRUST</span>
+            </h1>
+            <p className="text-[10px] tracking-[0.6em] text-neutral-600 uppercase mt-1">Oracle · Escrow Protocol</p>
+          </div>
 
-function InfoBox({ message, color = 'amber' }: { message: string; color?: 'amber' | 'blue' | 'green' }) {
-  const c = { amber: 'text-amber-400 bg-amber-500/5 border-amber-500/15', blue: 'text-sky-400 bg-sky-500/5 border-sky-500/15', green: 'text-emerald-400 bg-emerald-500/5 border-emerald-500/15' }[color];
-  return <div className={`text-[11px] font-medium p-3.5 rounded-xl border ${c} leading-relaxed`}>{message}</div>;
-}
+          <p className="text-neutral-400 text-sm leading-relaxed max-w-[280px]">
+            Lock funds · verify delivery · release with confidence.<br />
+            The most secure escrow protocol on Pi Network.
+          </p>
 
-function Spinner() {
-  return <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />;
-}
+          {/* Stats bar */}
+          <div className="grid grid-cols-3 gap-2 w-full">
+            {[{ v: '0%', l: 'Fraud Rate' }, { v: '1%', l: 'Platform Fee' }, { v: '24/7', l: 'Active' }].map(s => (
+              <div key={s.l} className="bg-[#0d0d0d] border border-white/6 rounded-xl py-3.5 text-center">
+                <div className="text-xl font-black text-amber-400">{s.v}</div>
+                <div className="text-[9px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
+              </div>
+            ))}
+          </div>
 
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-[#0d0d0d] border border-white/6 rounded-2xl ${className}`}>
-      {children}
-    </div>
-  );
-}
+          <button
+            onClick={onLogin}
+            disabled={loading}
+            className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-400 text-black font-black rounded-xl transition-all active:scale-[0.98] hover:from-amber-400 shadow-[0_12px_40px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2.5 text-sm disabled:opacity-50">
+            <Wallet size={17} />
+            {loading ? 'Authenticating…' : 'Connect Pi Wallet'}
+            {!loading && <ArrowRight size={15} />}
+          </button>
 
-function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
-  return (
-    <div className="flex items-start gap-3 mb-6">
-      <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
-        <Icon size={16} className="text-amber-400" />
+          <div className="flex items-center justify-center gap-5">
+            {[
+              { I: Shield, t: 'Blockchain Protected' },
+              { I: Lock,   t: 'Your Key Only'         },
+              { I: Users,  t: 'Neutral Judges'         },
+            ].map(({ I, t }) => (
+              <div key={t} className="flex items-center gap-1.5 text-[10px] text-neutral-600">
+                <I size={10} className="text-amber-500/50 flex-shrink-0" />{t}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Expandable sections */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 px-1 pb-1">
+            <div className="h-px flex-1 bg-white/6" />
+            <span className="text-[9px] font-black tracking-[0.25em] uppercase text-neutral-700">Learn More</span>
+            <div className="h-px flex-1 bg-white/6" />
+          </div>
+          {sections.map(sec => (
+            <div key={sec.key}
+              className={'rounded-2xl border overflow-hidden transition-all bg-[#0d0d0d] ' + (section === sec.key ? 'border-amber-500/20' : 'border-white/6')}>
+              <button
+                onClick={() => setSection(section === sec.key ? null : sec.key)}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/2 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
+                    <span className="text-base">{sec.icon}</span>
+                  </div>
+                  <div className="text-left">
+                    <div className="text-[12px] font-black text-white">{sec.title}</div>
+                    <div className="text-[10px] text-neutral-600">{sec.sub}</div>
+                  </div>
+                </div>
+                <ChevronDown size={14} className={'text-neutral-600 transition-transform duration-200 ' + (section === sec.key ? 'rotate-180' : '')} />
+              </button>
+              {section === sec.key && (
+                <div className="border-t border-white/5 px-4 pb-5 pt-4">{sec.content}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Bottom CTA */}
+        <div className="mt-8 space-y-4">
+          <button
+            onClick={onLogin}
+            disabled={loading}
+            className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-400 text-black font-black rounded-xl active:scale-[0.98] shadow-[0_12px_40px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2.5 text-sm disabled:opacity-50">
+            <Wallet size={17} />
+            {loading ? 'Authenticating…' : 'Get Started — Connect Pi Wallet'}
+          </button>
+          <p className="text-center text-[10px] text-neutral-700">
+            Support: <span className="text-amber-500/60">Riahig45@gmail.com</span>
+          </p>
+        </div>
       </div>
-      <div>
-        <h2 className="text-base font-black tracking-tight text-white">{title}</h2>
-        {subtitle && <p className="text-[11px] text-neutral-500 mt-0.5">{subtitle}</p>}
-      </div>
-    </div>
+    </main>
   );
 }
 
-function PrimaryButton({ children, disabled, onClick, type = 'button', variant = 'gold' }: {
-  children: React.ReactNode; disabled?: boolean; onClick?: () => void; type?: 'button' | 'submit'; variant?: 'gold' | 'white' | 'ghost';
-}) {
-  const variants = {
-    gold: 'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]',
-    white: 'bg-white text-black hover:bg-amber-50',
-    ghost: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
-  };
-  return (
-    <button type={type} disabled={disabled} onClick={onClick}
-      className={`w-full py-3.5 font-black rounded-xl transition-all duration-200 active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-[12px] tracking-wide ${variants[variant]}`}>
-      {children}
-    </button>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   MAIN COMPONENT
-══════════════════════════════════════════════════════════ */
-export default function HomePage() {
-  const { user, loading, authenticateUser } = usePiSDK();
-  const [mounted, setMounted] = useState(false);
-  const [sessionExpired, setSessionExpired] = useState(false);
-  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats'>('buyer');
-
-  /* Buyer state */
+// ─────────────────────────────────────────────────────────────────────────────
+// BUYER TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function BuyerTab({ user }: { user: PiUser }) {
+  // Create escrow state
   const [sellerWallet, setSellerWallet] = useState('');
-  const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [buyerError, setBuyerError] = useState<string | null>(null);
-  const [escrowResult, setEscrowResult] = useState<{ transactionNumber: string; escrowCode: string; secretKey: string; shareUrl: string } | null>(null);
-  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [amount, setAmount]             = useState('');
+  const [desc, setDesc]                 = useState('');
+  const [creating, setCreating]         = useState(false);
+  const [createErr, setCreateErr]       = useState<string | null>(null);
+  const [result, setResult]             = useState<EscrowResult | null>(null);
+  const [showBK, setShowBK]             = useState(false);
+  const [showSK, setShowSK]             = useState(false);
 
-  /* Release state */
-  const [releaseCode, setReleaseCode] = useState('');
-  const [releaseKey, setReleaseKey] = useState('');
-  const [releaseConfirm, setReleaseConfirm] = useState('');
-  const [releaseError, setReleaseError] = useState<string | null>(null);
-  const [releaseSuccess, setReleaseSuccess] = useState(false);
-  const [releaseLoading, setReleaseLoading] = useState(false);
+  // Release state
+  const [relCode, setRelCode]       = useState('');
+  const [relKey, setRelKey]         = useState('');
+  const [relConfirm, setRelConfirm] = useState('');
+  const [relLoading, setRelLoading] = useState(false);
+  const [relErr, setRelErr]         = useState<string | null>(null);
+  const [relOk, setRelOk]           = useState<string | null>(null);
 
-  /* Seller state */
-  const [sellerCode, setSellerCode] = useState('');
-  const [sellerTx, setSellerTx] = useState<Transaction | null>(null);
-  const [sellerError, setSellerError] = useState<string | null>(null);
-  const [sellerLoading, setSellerLoading] = useState(false);
+  // Dispute state
+  const [disCode, setDisCode]       = useState('');
+  const [disReason, setDisReason]   = useState('');
+  const [disLoading, setDisLoading] = useState(false);
+  const [disErr, setDisErr]         = useState<string | null>(null);
+  const [disOk, setDisOk]           = useState<string | null>(null);
 
-  /* Transactions state */
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [txLoading, setTxLoading] = useState(false);
-  const [stats, setStats] = useState({ total: 0, released: 0, disputed: 0, totalPi: 0 });
-
-  useEffect(() => { setMounted(true); }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const match = window.location.pathname.match(/\/escrow\/([A-Z0-9-]+)/);
-      if (match) { setTab('seller'); setSellerCode(match[1]); }
-    }
-  }, []);
-
-  const handleSessionExpire = useCallback(() => { setSessionExpired(true); }, []);
-  useSessionTimer(user ? handleSessionExpire : () => {});
+  // Evidence state
+  const [evCode, setEvCode]       = useState('');
+  const [evText, setEvText]       = useState('');
+  const [evLoading, setEvLoading] = useState(false);
+  const [evErr, setEvErr]         = useState<string | null>(null);
+  const [evOk, setEvOk]           = useState(false);
 
   const fee = useMemo(() => {
-    const val = parseFloat(amount);
-    return isNaN(val) || val <= 0 ? 0 : val / 100;
+    const v = parseFloat(amount);
+    return isNaN(v) || v <= 0 ? 0 : v * 0.01;
   }, [amount]);
 
-  const handleCreateEscrow = async (e: React.FormEvent) => {
+  // Create escrow via Pi.createPayment
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) { setBuyerError('Connect Pi Wallet first.'); return; }
-    setIsProcessing(true); setBuyerError(null); setEscrowResult(null);
+    setCreating(true); setCreateErr(null); setResult(null);
     try {
-      const result = await createEscrow({ sellerWallet, amount: parseFloat(amount), fee, description: description || 'No description', buyerUsername: user.username });
-      const shareUrl = window.location.origin + '/escrow/' + result.escrowCode;
-      setEscrowResult({ transactionNumber: result.transactionNumber, escrowCode: result.escrowCode, secretKey: result.secretKey, shareUrl });
-      setAmount(''); setSellerWallet(''); setDescription('');
-    } catch (err: any) { setBuyerError(err.message); }
-    finally { setIsProcessing(false); }
+      const win = window as any;
+      if (!win.Pi) throw new Error('Open this app in Pi Browser');
+
+      const total = parseFloat(amount) + fee;
+      let pending: EscrowResult | null = null;
+
+      await new Promise<void>((resolve, reject) => {
+        win.Pi.createPayment(
+          {
+            amount: total,
+            memo:   ('PTrust: ' + (desc || 'Escrow')).substring(0, 28),
+            metadata: { seller: sellerWallet, buyer: user.username },
+          },
+          {
+            onReadyForServerApproval: async (paymentId: string) => {
+              try {
+                const res = await apiFetch('/api/escrow/create', {
+                  paymentId,
+                  sellerWallet,
+                  amount:      parseFloat(amount),
+                  fee,
+                  description: desc || 'No description',
+                  buyerUsername: user.username,
+                });
+                pending = {
+                  transactionNumber: res.transactionNumber,
+                  escrowCode:        res.escrowCode,
+                  buyerKey:          res.buyerKey,
+                  sellerKey:         res.sellerKey,
+                };
+              } catch (err: any) { reject(err); }
+            },
+            onReadyForServerCompletion: async (paymentId: string, txid: string) => {
+              try {
+                await apiFetch('/api/escrow/finalize', { paymentId, txid });
+                setResult(pending);
+                setAmount(''); setSellerWallet(''); setDesc('');
+                resolve();
+              } catch (err: any) { reject(err); }
+            },
+            onCancel: () => reject(new Error('Payment cancelled')),
+            onError:  (err: Error) => reject(err),
+          }
+        );
+      });
+    } catch (err: any) {
+      setCreateErr(err.message);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleRelease = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    setReleaseLoading(true); setReleaseError(null);
+    setRelLoading(true); setRelErr(null); setRelOk(null);
     try {
-      await releaseEscrow(releaseCode.toUpperCase(), releaseKey, releaseConfirm, user.username);
-      setReleaseSuccess(true);
-    } catch (err: any) { setReleaseError(err.message); }
-    finally { setReleaseLoading(false); }
-  };
-
-  const handleLookupEscrow = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) { setSellerError('Connect Pi Wallet first.'); return; }
-    setSellerLoading(true); setSellerError(null); setSellerTx(null);
-    try {
-      const result = await fetchEscrowByCode(sellerCode.toUpperCase());
-      setSellerTx(result.transaction);
-    } catch (err: any) { setSellerError(err.message); }
-    finally { setSellerLoading(false); }
-  };
-
-  const handleAcceptDeal = async () => {
-    if (!user || !sellerTx) return;
-    setSellerLoading(true); setSellerError(null);
-    try {
-      await acceptDeal(sellerTx.escrowCode, user.username);
-      setSellerTx({ ...sellerTx, status: 'ACCEPTED' });
-    } catch (err: any) { setSellerError(err.message); }
-    finally { setSellerLoading(false); }
-  };
-
-  const handleConfirmDelivery = async () => {
-    if (!user || !sellerTx) return;
-    setSellerLoading(true); setSellerError(null);
-    try {
-      await confirmDelivery(sellerTx.escrowCode, user.username);
-      setSellerTx({ ...sellerTx, status: 'DELIVERED' });
-    } catch (err: any) { setSellerError(err.message); }
-    finally { setSellerLoading(false); }
-  };
-
-  const loadTransactions = async () => {
-    if (!user) return;
-    setTxLoading(true);
-    try {
-      const result = await fetchMyTransactions(user.username);
-      const txs = result.transactions || [];
-      setTransactions(txs);
-      setStats({
-        total: txs.length,
-        released: txs.filter((t: Transaction) => t.status === 'RELEASED').length,
-        disputed: txs.filter((t: Transaction) => t.status === 'DISPUTED').length,
-        totalPi: txs.filter((t: Transaction) => t.status === 'RELEASED').reduce((a: number, t: Transaction) => a + t.amount, 0),
+      await apiFetch('/api/escrow/release', {
+        escrowCode:  relCode.toUpperCase(),
+        buyerKey:    relKey,
+        confirmText: relConfirm,
+        buyerUsername: user.username,
       });
-    } catch { setTransactions([]); }
-    finally { setTxLoading(false); }
+      setRelOk('Funds released successfully! They are on their way to the seller.');
+      setRelCode(''); setRelKey(''); setRelConfirm('');
+    } catch (err: any) { setRelErr(err.message); }
+    finally { setRelLoading(false); }
   };
 
-  useEffect(() => {
-    if ((tab === 'transactions' || tab === 'stats') && user) loadTransactions();
-  }, [tab, user]);
-
-  const openDispute = (tx: Transaction) => {
-    const subject = encodeURIComponent('PTrust Oracle Dispute - ' + tx.transactionNumber);
-    const body = encodeURIComponent(
-      'Transaction Number: ' + tx.transactionNumber +
-      '\nEscrow Code: ' + tx.escrowCode +
-      '\nAmount: ' + tx.amount + ' Pi' +
-      '\nBuyer: @' + tx.buyerUsername +
-      '\nSeller: @' + (tx.sellerUsername || 'unknown') +
-      '\nStatus: ' + tx.status +
-      '\nDescription: ' + tx.description +
-      '\n\nPlease describe your issue:'
-    );
-    window.open('mailto:Riahig45@gmail.com?subject=' + subject + '&body=' + body);
+  const handleDispute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDisLoading(true); setDisErr(null); setDisOk(null);
+    try {
+      const res = await apiFetch('/api/escrow/dispute', {
+        escrowCode:   disCode.toUpperCase(),
+        buyerUsername: user.username,
+        reason:        disReason,
+      });
+      setDisOk('Dispute opened. Funds frozen. Evidence deadline: ' +
+        new Date(res.evidenceDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      setDisCode(''); setDisReason('');
+    } catch (err: any) { setDisErr(err.message); }
+    finally { setDisLoading(false); }
   };
 
-  if (!mounted) return null;
+  const handleEvidence = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEvLoading(true); setEvErr(null); setEvOk(false);
+    try {
+      await apiFetch('/api/escrow/evidence', {
+        escrowCode: evCode.toUpperCase(),
+        username:   user.username,
+        content:    evText,
+      });
+      setEvOk(true); setEvText('');
+    } catch (err: any) { setEvErr(err.message); }
+    finally { setEvLoading(false); }
+  };
 
-  /* ── Session Expired ── */
-  if (sessionExpired) {
-    return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#080808] text-white font-sans">
-        <style>{globalStyles}</style>
-        <div className="text-center space-y-6 max-w-xs w-full">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-            <Clock size={24} className="text-amber-400" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight">Session Expired</h2>
-            <p className="text-neutral-500 text-sm mt-2 leading-relaxed">Inactive for 30 minutes. Sign in again to continue.</p>
-          </div>
-          <PrimaryButton onClick={() => { setSessionExpired(false); authenticateUser(); }}>
-            <Wallet size={15} /> Sign In Again
-          </PrimaryButton>
-        </div>
-      </main>
-    );
-  }
+  return (
+    <div className="space-y-4">
 
-  /* ── Login Screen ── */
-  if (!user) {
-    return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-5 bg-[#080808] text-white relative overflow-hidden">
-        <style>{globalStyles}</style>
+      {/* ── Create Escrow ── */}
+      {!result ? (
+        <Card className="p-6">
+          <SecHead Icon={Zap} title="Create Escrow" sub="You pay via Pi Browser. Each party gets their own key." />
+          <form onSubmit={handleCreate} className="space-y-4">
+            <Field label="Seller Wallet Address">
+              <input required placeholder="G…" value={sellerWallet}
+                onChange={e => setSellerWallet(e.target.value)}
+                className={inputBase} />
+            </Field>
 
-        {/* Atmospheric background */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-[-20%] left-[50%] -translate-x-1/2 w-[600px] h-[600px] bg-amber-500/5 rounded-full blur-[120px]" />
-          <div className="absolute bottom-[-10%] left-[10%] w-[300px] h-[300px] bg-amber-600/3 rounded-full blur-[80px]" />
-          <div className="absolute top-[20%] right-[-5%] w-[200px] h-[400px] bg-orange-500/3 rounded-full blur-[60px]" />
-          {/* Grid texture */}
-          <div className="absolute inset-0 opacity-[0.015]" style={{backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '60px 60px'}} />
-        </div>
-
-        <div className="relative flex flex-col items-center w-full max-w-sm space-y-6">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/4 border border-white/8 text-neutral-400 text-[9px] font-black tracking-[0.2em] uppercase">
-            <ShieldCheck size={11} className="text-amber-400" />
-            Secured by Pi Network SDK 2.0
-          </div>
-
-          {/* Logo */}
-          <div className="text-center space-y-1">
-            <div className="relative inline-block">
-              <h1 className="text-[72px] font-black tracking-[-0.04em] leading-none"
-                style={{ fontFamily: "'Georgia', serif", letterSpacing: '-2px' }}>
-                P<span className="text-transparent" style={{
-                  WebkitTextStroke: '2px #f59e0b',
-                  textShadow: '0 0 60px rgba(245,158,11,0.3)'
-                }}>TRUST</span>
-              </h1>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Amount (Pi)">
+                <input required type="number" min="1" max="100000" step="0.01" placeholder="0.00"
+                  value={amount} onChange={e => setAmount(e.target.value)}
+                  className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 text-amber-400 font-black text-xl focus:border-amber-500/50 outline-none transition-all placeholder-neutral-800" />
+              </Field>
+              <Field label="Fee (1%)" hint="auto">
+                <div className="w-full bg-neutral-900/40 border border-white/4 rounded-xl py-3 px-4 text-neutral-500 font-black text-xl">
+                  {fee > 0 ? fee.toFixed(3) : '—'}
+                </div>
+              </Field>
             </div>
-            <p className="text-[10px] tracking-[0.5em] text-neutral-500 uppercase font-light">Oracle · Escrow Protocol</p>
+
+            <Field label="Deal Terms" hint="optional">
+              <textarea placeholder="Describe the goods or service being exchanged…"
+                value={desc} onChange={e => setDesc(e.target.value)} rows={3}
+                className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+            </Field>
+
+            {createErr && <ErrBox msg={createErr} />}
+
+            <PrimaryBtn type="submit" disabled={creating || !amount || !sellerWallet}>
+              {creating ? <><Spin /> Processing Payment…</> : <><Lock size={14} /> Lock Funds in Escrow</>}
+            </PrimaryBtn>
+          </form>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {/* Success header */}
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+              <CheckCircle2 size={14} className="text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-emerald-400">Escrow Created</h2>
+              <p className="text-[10px] text-neutral-600">Keys shown only once — save them now</p>
+            </div>
           </div>
 
-          {/* Description */}
-          <p className="text-neutral-400 text-sm leading-relaxed text-center max-w-[280px]">
-            The most secure escrow on Pi Network. Lock funds, verify delivery, release with confidence.
-          </p>
+          {/* TX Number */}
+          <Card className="p-4">
+            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600 mb-2 flex items-center gap-1">
+              <Hash size={9} /> Transaction Number
+            </div>
+            <div className="text-sm font-black text-amber-400 font-mono tracking-wider mb-2">
+              {result.transactionNumber}
+            </div>
+            <CopyBtn text={result.transactionNumber} label="Copy TX#" />
+          </Card>
 
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-2 w-full">
-            {[
-              { value: '0%', label: 'Fraud Rate' },
-              { value: '1%', label: 'Platform Fee' },
-              { value: '24/7', label: 'Oracle Active' }
-            ].map(s => (
-              <div key={s.label} className="bg-[#0d0d0d] border border-white/6 rounded-xl py-3.5 text-center">
-                <div className="text-xl font-black text-amber-400">{s.value}</div>
-                <div className="text-[9px] text-neutral-600 uppercase tracking-widest mt-0.5">{s.label}</div>
+          {/* Escrow Code */}
+          <Card className="p-4 border-amber-500/15">
+            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/60 mb-2">
+              Escrow Code — Share with Seller
+            </div>
+            <div className="text-3xl font-black text-amber-400 tracking-[0.15em] font-mono mb-3">
+              {result.escrowCode}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <CopyBtn text={result.escrowCode} label="Copy Code" />
+              <button
+                onClick={() => {
+                  const url = window.location.origin + '/escrow/' + result.escrowCode;
+                  if (navigator.share) navigator.share({ title: 'PTrust Escrow', url });
+                  else window.open('https://wa.me/?text=' + encodeURIComponent(url));
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-black text-amber-400 hover:bg-amber-500/15 transition-colors">
+                <Share2 size={11} /> Share
+              </button>
+            </div>
+          </Card>
+
+          {/* Buyer Key */}
+          <Card className="p-4 border-amber-500/20 bg-amber-500/3">
+            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-400/70 mb-2 flex items-center justify-between">
+              <span>Your Buyer Key — Keep Private</span>
+              <button onClick={() => setShowBK(!showBK)} className="text-neutral-600 hover:text-neutral-400 transition-colors">
+                {showBK ? <EyeOff size={11} /> : <Eye size={11} />}
+              </button>
+            </div>
+            <div className="text-base font-black text-white font-mono tracking-widest mb-1">
+              {showBK ? result.buyerKey : 'BK-••••••••'}
+            </div>
+            <p className="text-[9px] text-amber-400/50 mb-2.5">
+              Never share. Required to release funds or open a dispute.
+            </p>
+            <CopyBtn text={result.buyerKey} label="Copy Buyer Key" />
+          </Card>
+
+          {/* Seller Key */}
+          <Card className="p-4 border-sky-500/20 bg-sky-500/3">
+            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-sky-400/70 mb-2 flex items-center justify-between">
+              <span>Seller Key — Send to Seller</span>
+              <button onClick={() => setShowSK(!showSK)} className="text-neutral-600 hover:text-neutral-400 transition-colors">
+                {showSK ? <EyeOff size={11} /> : <Eye size={11} />}
+              </button>
+            </div>
+            <div className="text-base font-black text-white font-mono tracking-widest mb-1">
+              {showSK ? result.sellerKey : 'SK-••••••••'}
+            </div>
+            <p className="text-[9px] text-sky-400/50 mb-2.5">
+              Share this with the seller — required to accept the deal.
+            </p>
+            <CopyBtn text={result.sellerKey} label="Copy Seller Key" />
+          </Card>
+
+          <InfoBanner msg="Send the Escrow Code AND Seller Key to the seller. Keep your Buyer Key private at all times." />
+
+          <button
+            onClick={() => { setResult(null); setShowBK(false); setShowSK(false); }}
+            className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
+            + Create Another Escrow
+          </button>
+        </div>
+      )}
+
+      {/* ── Release Funds ── */}
+      <Card className="p-6">
+        <SecHead Icon={CheckCircle2} title="Confirm Receipt" sub="Release funds after you receive the goods" />
+        <form onSubmit={handleRelease} className="space-y-3">
+          <Field label="Escrow Code">
+            <input required placeholder="PTO-XXXXXX" value={relCode}
+              onChange={e => setRelCode(e.target.value.toUpperCase())}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+          </Field>
+          <Field label="Buyer Key">
+            <input required placeholder="BK-XXXXXXXX" value={relKey}
+              onChange={e => setRelKey(e.target.value)}
+              className={inputBase} />
+          </Field>
+          <div className="bg-amber-500/4 border border-amber-500/15 rounded-xl p-3.5 space-y-2">
+            <p className="text-[10px] text-amber-400/70 font-black">Type CONFIRM to authorize this irreversible release</p>
+            <input placeholder="CONFIRM" value={relConfirm}
+              onChange={e => setRelConfirm(e.target.value)}
+              className="w-full bg-black/60 border border-amber-500/20 rounded-xl py-3 px-4 focus:border-amber-500/60 outline-none text-sm text-center font-black tracking-[0.3em] transition-all placeholder-neutral-700 text-amber-400" />
+          </div>
+          {relErr && <ErrBox msg={relErr} />}
+          {relOk  && <OkBox  msg={relOk} />}
+          <PrimaryBtn type="submit" variant="white"
+            disabled={relLoading || !!relOk || relConfirm !== 'CONFIRM' || !relCode || !relKey}>
+            {relLoading ? <><Spin /> Releasing…</> : 'Received — Release Funds to Seller'}
+          </PrimaryBtn>
+        </form>
+      </Card>
+
+      {/* ── Open Dispute ── */}
+      <Card className="p-6">
+        <SecHead Icon={XCircle} title="Not Received — Open Dispute" sub="Freeze funds and begin dispute process" />
+        <form onSubmit={handleDispute} className="space-y-3">
+          <Field label="Escrow Code">
+            <input required placeholder="PTO-XXXXXX" value={disCode}
+              onChange={e => setDisCode(e.target.value.toUpperCase())}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-rose-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+          </Field>
+          <Field label="Describe the Issue">
+            <textarea required placeholder="What went wrong? Be specific…"
+              value={disReason} onChange={e => setDisReason(e.target.value)} rows={3}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-rose-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+          </Field>
+          {disErr && <ErrBox msg={disErr} />}
+          {disOk  && <OkBox  msg={disOk} />}
+          <PrimaryBtn type="submit" variant="danger" disabled={disLoading || !!disOk}>
+            {disLoading ? <><Spin /> Processing…</> : <><XCircle size={14} /> Freeze Funds &amp; Open Dispute</>}
+          </PrimaryBtn>
+        </form>
+      </Card>
+
+      {/* ── Submit Evidence ── */}
+      <Card className="p-6">
+        <SecHead Icon={FileText} title="Submit Evidence" sub="15-day window after dispute is opened" />
+        <form onSubmit={handleEvidence} className="space-y-3">
+          <Field label="Escrow Code">
+            <input required placeholder="PTO-XXXXXX" value={evCode}
+              onChange={e => setEvCode(e.target.value.toUpperCase())}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+          </Field>
+          <Field label="Evidence" hint="max 5 items">
+            <textarea required placeholder="URL, tracking number, description, or any supporting proof…"
+              value={evText} onChange={e => setEvText(e.target.value)} rows={4}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+          </Field>
+          {evErr && <ErrBox msg={evErr} />}
+          {evOk  && <OkBox  msg="Evidence submitted successfully." />}
+          <PrimaryBtn type="submit" variant="ghost" disabled={evLoading}>
+            {evLoading ? <><Spin /> Submitting…</> : <><FileText size={14} /> Submit Evidence</>}
+          </PrimaryBtn>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELLER TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function SellerTab({ user }: { user: PiUser }) {
+  const [code, setCode]       = useState('');
+  const [key, setKey]         = useState('');
+  const [tx, setTx]           = useState<Transaction | null>(null);
+  const [err, setErr]         = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [rated, setRated]     = useState(false);
+
+  const lookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!code) return;
+    setLoading(true); setErr(null); setTx(null);
+    try {
+      const res = await fetch('/api/escrow/transaction/' + code.toUpperCase());
+      const d   = await res.json();
+      if (!d.success) throw new Error(d.error);
+      setTx(d.transaction);
+    } catch (err: any) { setErr(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const accept = async () => {
+    if (!tx || !key) { setErr('Enter your Seller Key'); return; }
+    setLoading(true); setErr(null);
+    try {
+      await apiFetch('/api/escrow/accept', { escrowCode: tx.escrowCode, sellerUsername: user.username, sellerKey: key });
+      setTx({ ...tx, status: 'ACCEPTED', sellerUsername: user.username });
+      setKey('');
+    } catch (err: any) { setErr(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const deliver = async () => {
+    if (!tx) return;
+    setLoading(true); setErr(null);
+    try {
+      await apiFetch('/api/escrow/complete', { escrowCode: tx.escrowCode, sellerUsername: user.username });
+      setTx({ ...tx, status: 'DELIVERED' });
+    } catch (err: any) { setErr(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const rate = async (n: number) => {
+    if (!tx) return;
+    try {
+      await apiFetch('/api/escrow/rate', { escrowCode: tx.escrowCode, rating: n, raterUsername: user.username });
+      setRated(true);
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <SecHead Icon={Package} title="Seller Dashboard" sub="Enter your Escrow Code and Seller Key to manage your deal" />
+
+        {!tx ? (
+          <form onSubmit={lookup} className="space-y-4">
+            <Field label="Escrow Code" hint="From buyer">
+              <input required placeholder="PTO-XXXXXX" value={code}
+                onChange={e => setCode(e.target.value.toUpperCase())}
+                className="w-full bg-black/60 border border-white/8 rounded-xl py-4 px-4 focus:border-amber-500/50 outline-none font-mono text-2xl text-center tracking-[0.2em] uppercase transition-all placeholder-neutral-800 text-amber-400" />
+            </Field>
+            <Field label="Seller Key" hint="From buyer">
+              <input placeholder="SK-XXXXXXXX" value={key}
+                onChange={e => setKey(e.target.value)}
+                className={inputBase} />
+            </Field>
+            {err && <ErrBox msg={err} />}
+            <PrimaryBtn type="submit" disabled={loading || !code}>
+              {loading ? <><Spin /> Looking Up…</> : <><Key size={14} /> Find Escrow</>}
+            </PrimaryBtn>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            {/* Deal details */}
+            <div className="bg-black/40 rounded-xl p-4 space-y-3 border border-white/4">
+              {[
+                { l: 'TX Number',   v: <span className="font-black text-amber-400 font-mono text-xs">{tx.transactionNumber}</span> },
+                { l: 'Escrow Code', v: <span className="font-black text-amber-400 font-mono">{tx.escrowCode}</span>              },
+                { l: 'Amount',      v: <span className="font-black text-lg">{tx.amount} <span className="text-amber-400 text-sm">Pi</span></span> },
+                { l: 'Buyer',       v: <span className="font-black text-sm">@{tx.buyerUsername}</span>                            },
+                { l: 'Status',      v: <StatusBadge status={tx.status} />                                                         },
+              ].map(({ l, v }) => (
+                <div key={l} className="flex items-center justify-between">
+                  <span className="text-[9px] uppercase font-black tracking-widest text-neutral-600">{l}</span>
+                  {v}
+                </div>
+              ))}
+              {tx.description && (
+                <div className="pt-1 border-t border-white/4">
+                  <div className="text-[9px] uppercase font-black tracking-widest text-neutral-600 mb-1.5">Deal Terms</div>
+                  <p className="text-sm text-neutral-300 leading-relaxed">{tx.description}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Action area */}
+            {tx.status === 'PENDING' && (
+              <div className="space-y-3">
+                <InfoBanner msg="Review deal terms above. Enter your Seller Key to accept and lock funds." />
+                <Field label="Seller Key">
+                  <input placeholder="SK-XXXXXXXX" value={key}
+                    onChange={e => setKey(e.target.value)}
+                    className={inputBase} />
+                </Field>
+                <PrimaryBtn onClick={accept} disabled={loading}>
+                  {loading ? <><Spin /> Processing…</> : <><Shield size={14} /> Accept Deal</>}
+                </PrimaryBtn>
               </div>
-            ))}
-          </div>
+            )}
 
-          {/* Feature list */}
-          <div className="w-full space-y-2">
-            {[
-              { icon: Shield, text: 'End-to-end protected transactions' },
-              { icon: Lock, text: 'Secret key only you control' },
-              { icon: Star, text: 'Rating system for trusted trading' },
-            ].map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-2.5 text-[11px] text-neutral-500">
-                <Icon size={11} className="text-amber-500/60 flex-shrink-0" />
-                {text}
+            {tx.status === 'ACCEPTED' && (
+              <div className="space-y-3">
+                <InfoBanner msg="Deal accepted. Deliver the goods or complete the service, then confirm below." />
+                <PrimaryBtn onClick={deliver} disabled={loading}>
+                  {loading ? <><Spin /> Processing…</> : <><Package size={14} /> Confirm Delivery Sent</>}
+                </PrimaryBtn>
               </div>
-            ))}
-          </div>
+            )}
 
-          {/* CTA */}
-          <div className="w-full">
-            <button onClick={authenticateUser} disabled={loading}
-              className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-400 text-black font-black rounded-xl transition-all duration-200 active:scale-[0.98] hover:from-amber-400 hover:to-amber-300 shadow-[0_12px_40px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-              <Wallet size={17} />
-              {loading ? 'Authenticating…' : 'Connect Pi Wallet'}
-              {!loading && <ArrowRight size={15} />}
+            {tx.status === 'DELIVERED' && (
+              <InfoBanner msg="Delivery confirmed. Waiting for buyer to release funds." color="sky" />
+            )}
+
+            {tx.status === 'FROZEN' && (
+              <InfoBanner msg="Buyer opened a dispute. Submit your evidence in the Buyer tab within 15 days." color="blue" />
+            )}
+
+            {tx.status === 'UNDER_REVIEW' && (
+              <InfoBanner msg="Judges are reviewing the evidence. A decision will be made soon." color="blue" />
+            )}
+
+            {tx.status === 'RELEASED' && (
+              <div className="space-y-3">
+                <OkBox msg={'Payment of ' + tx.amount + ' Pi released to your wallet.'} />
+                {tx.sellerTxHash && (
+                  <div className="text-[10px] text-neutral-600 break-all">
+                    TxHash: <span className="text-neutral-500 font-mono">{tx.sellerTxHash}</span>
+                  </div>
+                )}
+                {!rated && (
+                  <Card className="p-4">
+                    <p className="text-[10px] font-black text-neutral-500 mb-3">Rate this transaction</p>
+                    <Stars onRate={rate} />
+                  </Card>
+                )}
+                {rated && <OkBox msg="Thank you for rating!" />}
+              </div>
+            )}
+
+            {tx.status === 'REFUNDED' && (
+              <InfoBanner msg="Judges ruled in favor of the buyer. Funds have been refunded." color="blue" />
+            )}
+
+            {err && <ErrBox msg={err} />}
+
+            <button
+              onClick={() => { setTx(null); setCode(''); setKey(''); setErr(null); setRated(false); }}
+              className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
+              ← Look Up Another Escrow
             </button>
           </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 
-          <HowItWorks />
+// ─────────────────────────────────────────────────────────────────────────────
+// TRANSACTIONS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function TransactionsTab({
+  user,
+  onNavigate,
+}: {
+  user: PiUser;
+  onNavigate: (tab: string, code?: string) => void;
+}) {
+  const [list, setList]     = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/escrow/transactions?username=' + user.username);
+      const d   = await res.json();
+      setList(d.transactions || []);
+    } catch { setList([]); }
+    finally { setLoading(false); }
+  }, [user.username]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rate = async (escrowCode: string, n: number) => {
+    try {
+      await apiFetch('/api/escrow/rate', { escrowCode, rating: n, raterUsername: user.username });
+      setList(prev => prev.map(t => t.escrowCode === escrowCode ? { ...t, rating: n } : t));
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between px-0.5">
+        <h2 className="text-base font-black tracking-tight">My Deals</h2>
+        <button
+          onClick={load}
+          className="flex items-center gap-1.5 text-[10px] font-black text-amber-500 hover:text-amber-400 transition-colors">
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
+      </div>
+
+      {loading && (
+        <div className="flex justify-center py-16">
+          <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
         </div>
-      </main>
+      )}
+
+      {!loading && list.length === 0 && (
+        <div className="text-center py-20 text-neutral-700">
+          <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="font-black text-sm">No transactions yet</p>
+          <p className="text-xs mt-1 opacity-60">Create your first escrow in the Buyer tab</p>
+        </div>
+      )}
+
+      {list.map(tx => (
+        <Card key={tx._id} className="p-4 space-y-3 hover:border-white/10 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="font-black text-amber-400 tracking-wider text-[11px] font-mono">
+              {tx.transactionNumber || tx.escrowCode}
+            </span>
+            <StatusBadge status={tx.status} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-neutral-600 text-[11px]">Amount</span>
+            <span className="font-black">{tx.amount} <span className="text-amber-400 text-xs">Pi</span></span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-neutral-600 text-[11px]">
+              {tx.buyerUsername === user.username ? 'Role' : 'Role'}
+            </span>
+            <span className={'text-[11px] font-black px-2 py-0.5 rounded-full ' +
+              (tx.buyerUsername === user.username ? 'bg-amber-500/10 text-amber-400' : 'bg-sky-500/10 text-sky-400')}>
+              {tx.buyerUsername === user.username ? 'Buyer' : 'Seller'}
+            </span>
+          </div>
+
+          {tx.description && (
+            <p className="text-[10px] text-neutral-600 leading-relaxed border-t border-white/4 pt-2.5">
+              {tx.description}
+            </p>
+          )}
+
+          <div className="text-[9px] text-neutral-700 flex items-center gap-1">
+            <Clock size={9} />
+            {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+
+          {/* Quick actions */}
+          <div className="space-y-2">
+            {tx.status === 'DELIVERED' && tx.buyerUsername === user.username && (
+              <>
+                <button
+                  onClick={() => onNavigate('buyer', tx.escrowCode)}
+                  className="w-full py-2.5 bg-emerald-500/8 border border-emerald-500/20 text-emerald-400 font-black rounded-xl text-[11px] hover:bg-emerald-500/15 transition-all flex items-center justify-center gap-2">
+                  <CheckCircle2 size={11} /> Received — Release Funds
+                </button>
+                <button
+                  onClick={() => onNavigate('dispute', tx.escrowCode)}
+                  className="w-full py-2.5 bg-rose-500/8 border border-rose-500/20 text-rose-400 font-black rounded-xl text-[11px] hover:bg-rose-500/15 transition-all flex items-center justify-center gap-2">
+                  <XCircle size={11} /> Not Received — Dispute
+                </button>
+              </>
+            )}
+            {['FROZEN', 'UNDER_REVIEW'].includes(tx.status) && (
+              <button
+                onClick={() => onNavigate('evidence', tx.escrowCode)}
+                className="w-full py-2.5 bg-blue-500/8 border border-blue-500/20 text-blue-400 font-black rounded-xl text-[11px] hover:bg-blue-500/15 transition-all flex items-center justify-center gap-2">
+                <FileText size={11} /> Submit Evidence
+              </button>
+            )}
+            {tx.status === 'RELEASED' && !tx.rating && (
+              <div className="pt-0.5">
+                <p className="text-[9px] text-neutral-600 mb-2">Rate this deal</p>
+                <Stars onRate={n => rate(tx.escrowCode, n)} />
+              </div>
+            )}
+            {tx.status === 'RELEASED' && tx.rating && (
+              <div className="flex items-center gap-1 pt-0.5">
+                <Stars value={tx.rating} />
+                <span className="text-[9px] text-neutral-600 ml-1">Rated</span>
+              </div>
+            )}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function StatsTab({ user }: { user: PiUser }) {
+  const [list, setList]     = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/escrow/transactions?username=' + user.username);
+        const d   = await res.json();
+        setList(d.transactions || []);
+      } catch { /* ignore */ }
+      finally { setLoading(false); }
+    })();
+  }, [user.username]);
+
+  const stats = useMemo(() => ({
+    total:    list.length,
+    released: list.filter(t => t.status === 'RELEASED').length,
+    disputed: list.filter(t => ['FROZEN', 'UNDER_REVIEW'].includes(t.status)).length,
+    totalPi:  list.filter(t => t.status === 'RELEASED').reduce((s, t) => s + t.amount, 0),
+    asBuyer:  list.filter(t => t.buyerUsername === user.username).length,
+    asSeller: list.filter(t => t.sellerUsername === user.username).length,
+  }), [list, user.username]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
+      </div>
     );
   }
 
-  /* ── Authenticated App ── */
+  return (
+    <div className="space-y-4">
+      <div className="px-0.5">
+        <h2 className="text-base font-black tracking-tight">Statistics</h2>
+        <p className="text-[10px] text-neutral-600 mt-0.5">@{user.username}&apos;s trading overview</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { l: 'Total Deals',   v: stats.total,                      accent: 'text-white',       border: '',                     Icon: Activity      },
+          { l: 'Completed',     v: stats.released,                   accent: 'text-emerald-400', border: 'border-emerald-500/10', Icon: CheckCircle2  },
+          { l: 'Active Disputes', v: stats.disputed,                 accent: 'text-rose-400',    border: 'border-rose-500/10',   Icon: AlertTriangle },
+          { l: 'Pi Transacted', v: stats.totalPi.toFixed(1) + ' π', accent: 'text-amber-400',   border: 'border-amber-500/10',  Icon: TrendingUp    },
+        ].map(({ l, v, accent, border, Icon }) => (
+          <Card key={l} className={'p-4 ' + border}>
+            <Icon size={14} className={accent + ' opacity-60 mb-3'} />
+            <div className={'text-2xl font-black ' + accent}>{v}</div>
+            <div className="text-[9px] text-neutral-600 uppercase tracking-widest mt-1">{l}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Role breakdown */}
+      <Card className="p-5">
+        <div className="text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-4">Role Breakdown</div>
+        <div className="flex gap-3">
+          <div className="flex-1 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-center">
+            <div className="text-2xl font-black text-amber-400">{stats.asBuyer}</div>
+            <div className="text-[9px] text-neutral-600 mt-1">As Buyer</div>
+          </div>
+          <div className="flex-1 bg-sky-500/5 border border-sky-500/10 rounded-xl p-3 text-center">
+            <div className="text-2xl font-black text-sky-400">{stats.asSeller}</div>
+            <div className="text-[9px] text-neutral-600 mt-1">As Seller</div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Success rate */}
+      {stats.total > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Success Rate</span>
+            <span className="text-sm font-black text-emerald-400">
+              {Math.round((stats.released / stats.total) * 100)}%
+            </span>
+          </div>
+          <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-700"
+              style={{ width: (stats.released / stats.total * 100) + '%' }}
+            />
+          </div>
+          <div className="flex justify-between text-[9px] text-neutral-700 mt-2">
+            <span>{stats.released} completed</span>
+            <span>{stats.total - stats.released} pending / other</span>
+          </div>
+        </Card>
+      )}
+
+      {/* Support */}
+      <Card className="p-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+            <Mail size={13} className="text-amber-400" />
+          </div>
+          <div>
+            <h3 className="text-xs font-black">Support</h3>
+            <p className="text-[9px] text-neutral-600">Response within 24 hours</p>
+          </div>
+        </div>
+        <PrimaryBtn variant="ghost"
+          onClick={() => window.open('mailto:Riahig45@gmail.com?subject=PTrust Oracle Support')}>
+          <Mail size={13} /> Contact Support
+        </PrimaryBtn>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN APP (authenticated)
+// ─────────────────────────────────────────────────────────────────────────────
+function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
+  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats'>('buyer');
+
+  // For deep-linking from transactions tab
+  const navigate = useCallback((dest: string, code?: string) => {
+    setTab('buyer');
+    // code is available for pre-filling — handled inside BuyerTab via state lifting if needed
+  }, []);
+
   return (
     <main className="min-h-screen flex flex-col items-center bg-[#080808] text-white pb-28">
-      <style>{globalStyles}</style>
-
-      {/* Subtle ambient glow */}
-      <div className="fixed top-0 left-0 right-0 h-[300px] bg-gradient-to-b from-amber-500/[0.03] to-transparent pointer-events-none" />
+      <div className="fixed top-0 left-0 right-0 h-[250px] bg-gradient-to-b from-amber-500/[0.025] to-transparent pointer-events-none" />
 
       <div className="w-full max-w-lg px-4 mt-6 space-y-4 relative">
-
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex items-center justify-between py-1">
           <div>
             <h1 className="text-xl font-black tracking-[-0.03em]" style={{ fontFamily: "'Georgia', serif" }}>
@@ -532,437 +1321,81 @@ export default function HomePage() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-black font-black text-sm">
               {user.username.charAt(0).toUpperCase()}
             </div>
-            <button onClick={() => setSessionExpired(true)}
-              className="w-8 h-8 rounded-xl bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-rose-400 hover:bg-rose-500/5 hover:border-rose-500/15 transition-all">
+            <button
+              onClick={onLogout}
+              className="w-8 h-8 rounded-xl bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-rose-400 hover:bg-rose-500/5 transition-all"
+              title="Sign out">
               <LogOut size={13} />
             </button>
           </div>
         </div>
 
-        {/* ── Tab Navigation ── */}
+        {/* Tab bar */}
         <div className="grid grid-cols-4 gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl">
-          {[
-            { key: 'buyer',        label: 'Buyer',  icon: Lock },
-            { key: 'seller',       label: 'Seller', icon: Package },
-            { key: 'transactions', label: 'Deals',  icon: ClipboardList },
-            { key: 'stats',        label: 'Stats',  icon: BarChart3 },
-          ].map(({ key, label, icon: Icon }) => (
-            <button key={key} onClick={() => setTab(key as any)}
-              className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-[9px] font-black tracking-wide transition-all duration-200
-                ${tab === key
+          {([
+            { key: 'buyer',        label: 'Buyer',  Icon: Lock          },
+            { key: 'seller',       label: 'Seller', Icon: Package       },
+            { key: 'transactions', label: 'Deals',  Icon: ClipboardList },
+            { key: 'stats',        label: 'Stats',  Icon: BarChart3     },
+          ] as const).map(({ key, label, Icon }) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={
+                'flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-[9px] font-black tracking-wide transition-all duration-200 ' +
+                (tab === key
                   ? 'bg-amber-500 text-black shadow-[0_4px_16px_rgba(245,158,11,0.25)]'
-                  : 'text-neutral-600 hover:text-neutral-300'}`}>
-              <Icon size={13} />
-              {label}
+                  : 'text-neutral-600 hover:text-neutral-300')
+              }>
+              <Icon size={13} />{label}
             </button>
           ))}
         </div>
 
-        {/* ══════════════ BUYER TAB ══════════════ */}
-        {tab === 'buyer' && (
-          <div className="space-y-4">
-            <HowItWorks />
-
-            {!escrowResult ? (
-              <Card className="p-6">
-                <SectionHeader icon={Zap} title="Create Escrow" subtitle="Lock funds securely until delivery is confirmed" />
-                <form onSubmit={handleCreateEscrow} className="space-y-4">
-                  <InputField label="Seller Wallet Address">
-                    <input required placeholder="G…" value={sellerWallet} onChange={e => setSellerWallet(e.target.value)}
-                      className="w-full bg-black/60 border border-white/6 rounded-xl py-3 px-4 focus:border-amber-500/50 focus:bg-black/80 outline-none text-white font-mono text-xs transition-all placeholder-neutral-700" />
-                  </InputField>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <InputField label="Amount (Pi)">
-                      <input required type="number" min="1" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)}
-                        className="w-full bg-black/60 border border-white/6 rounded-xl py-3 px-4 text-amber-400 font-black text-xl focus:border-amber-500/50 outline-none transition-all placeholder-neutral-800" />
-                    </InputField>
-                    <InputField label="Fee (1%)" sublabel="Auto-calculated">
-                      <div className="w-full bg-neutral-900/40 border border-white/4 rounded-xl py-3 px-4 text-neutral-500 font-black text-xl">
-                        {fee > 0 ? fee.toFixed(3) : '—'}
-                      </div>
-                    </InputField>
-                  </div>
-
-                  <InputField label="Deal Terms" sublabel="Optional">
-                    <textarea placeholder="Describe the goods or service being transacted…" value={description} onChange={e => setDescription(e.target.value)} rows={3}
-                      className="w-full bg-black/60 border border-white/6 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
-                  </InputField>
-
-                  {buyerError && <ErrorBox message={buyerError} />}
-
-                  <PrimaryButton type="submit" disabled={isProcessing || !amount || !sellerWallet}>
-                    {isProcessing ? <><Spinner /> Creating…</> : <><Lock size={14} /> Lock Funds in Escrow</>}
-                  </PrimaryButton>
-                </form>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {/* Success header */}
-                <div className="flex items-center gap-2.5 px-1">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-                    <CheckCircle2 size={14} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-black text-emerald-400">Escrow Created</h2>
-                    <p className="text-[10px] text-neutral-600">Share the code with your seller to proceed</p>
-                  </div>
-                </div>
-
-                {/* TX Number */}
-                <Card className="p-4">
-                  <div className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600 mb-2 flex items-center gap-1">
-                    <Hash size={9} /> Transaction Number
-                  </div>
-                  <div className="text-sm font-black text-amber-400 font-mono tracking-wider mb-2">{escrowResult.transactionNumber}</div>
-                  <CopyButton text={escrowResult.transactionNumber} label="Copy TX" />
-                </Card>
-
-                {/* Escrow Code */}
-                <Card className="p-4 border-amber-500/15">
-                  <div className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/60 mb-2">Escrow Code — Send to Seller</div>
-                  <div className="text-3xl font-black text-amber-400 tracking-[0.15em] font-mono mb-3">{escrowResult.escrowCode}</div>
-                  <div className="flex gap-2">
-                    <CopyButton text={escrowResult.escrowCode} label="Copy Code" />
-                    <button onClick={() => {
-                      if (navigator.share) navigator.share({ title: 'PTrust Escrow', url: escrowResult.shareUrl });
-                      else window.open('https://wa.me/?text=' + encodeURIComponent(escrowResult.shareUrl));
-                    }} className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-black text-amber-400 hover:bg-amber-500/15 transition-colors">
-                      <Share2 size={11} /> Share
-                    </button>
-                  </div>
-                </Card>
-
-                {/* Secret Key */}
-                <Card className="p-4 border-rose-500/15">
-                  <div className="text-[9px] uppercase font-black tracking-[0.15em] text-rose-400/70 mb-2 flex items-center justify-between">
-                    <span>Secret Key — Private, Never Share</span>
-                    <button onClick={() => setShowSecretKey(!showSecretKey)} className="text-neutral-600 hover:text-neutral-400 transition-colors">
-                      {showSecretKey ? <EyeOff size={11} /> : <Eye size={11} />}
-                    </button>
-                  </div>
-                  <div className="text-base font-black text-white font-mono tracking-widest mb-1">
-                    {showSecretKey ? escrowResult.secretKey : '••••••••••••'}
-                  </div>
-                  <p className="text-[9px] text-rose-400/40 mb-2.5">Required to release funds. Store it safely.</p>
-                  <CopyButton text={escrowResult.secretKey} label="Copy Secret Key" />
-                </Card>
-
-                {/* Share Link */}
-                <Card className="p-4">
-                  <div className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600 mb-2">Share Link</div>
-                  <p className="text-[10px] text-neutral-500 font-mono break-all mb-2.5">{escrowResult.shareUrl}</p>
-                  <CopyButton text={escrowResult.shareUrl} label="Copy Link" />
-                </Card>
-
-                <InfoBox message="Now wait for the seller to accept. Return here to release funds after delivery is confirmed." />
-
-                <button onClick={() => { setEscrowResult(null); setShowSecretKey(false); }}
-                  className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
-                  + Create New Escrow
-                </button>
-              </div>
-            )}
-
-            {/* Release Section */}
-            <Card className="p-6">
-              <SectionHeader icon={Key} title="Release Funds" subtitle="Enter your codes after seller confirms delivery" />
-              <form onSubmit={handleRelease} className="space-y-3">
-                <InputField label="Escrow Code">
-                  <input required placeholder="PTO-XXXXXX" value={releaseCode} onChange={e => setReleaseCode(e.target.value.toUpperCase())}
-                    className="w-full bg-black/60 border border-white/6 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
-                </InputField>
-                <InputField label="Secret Key">
-                  <input required placeholder="SK-XXXXXX" value={releaseKey} onChange={e => setReleaseKey(e.target.value)}
-                    className="w-full bg-black/60 border border-white/6 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm transition-all placeholder-neutral-700" />
-                </InputField>
-                <div className="bg-amber-500/4 border border-amber-500/15 rounded-xl p-3.5 space-y-2">
-                  <p className="text-[10px] text-amber-400/70 font-black">Type CONFIRM to authorize release (irreversible)</p>
-                  <input required placeholder="CONFIRM" value={releaseConfirm} onChange={e => setReleaseConfirm(e.target.value)}
-                    className="w-full bg-black/60 border border-amber-500/20 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm text-center font-black tracking-[0.3em] transition-all placeholder-neutral-700 text-amber-400" />
-                </div>
-                {releaseError && <ErrorBox message={releaseError} />}
-                {releaseSuccess && <SuccessBox message="Funds successfully released to the seller!" />}
-                <PrimaryButton type="submit" variant="white" disabled={releaseLoading || releaseSuccess || releaseConfirm !== 'CONFIRM'}>
-                  {releaseLoading ? <><Spinner /> Releasing…</> : 'Release Funds to Seller'}
-                </PrimaryButton>
-              </form>
-            </Card>
-          </div>
-        )}
-
-        {/* ══════════════ SELLER TAB ══════════════ */}
-        {tab === 'seller' && (
-          <div className="space-y-4">
-            <Card className="p-6">
-              <SectionHeader icon={Package} title="Seller Dashboard" subtitle="Look up an escrow and manage your side of the deal" />
-
-              {!sellerTx ? (
-                <form onSubmit={handleLookupEscrow} className="space-y-4">
-                  <InputField label="Escrow Code">
-                    <input required placeholder="PTO-XXXXXX" value={sellerCode} onChange={e => setSellerCode(e.target.value.toUpperCase())}
-                      className="w-full bg-black/60 border border-white/6 rounded-xl py-4 px-4 focus:border-amber-500/50 outline-none font-mono text-2xl text-center tracking-[0.2em] uppercase transition-all placeholder-neutral-800 text-amber-400" />
-                  </InputField>
-                  {sellerError && <ErrorBox message={sellerError} />}
-                  <PrimaryButton type="submit" disabled={sellerLoading || !sellerCode}>
-                    {sellerLoading ? <><Spinner /> Looking up…</> : 'Find Escrow'}
-                  </PrimaryButton>
-                </form>
-              ) : (
-                <div className="space-y-4">
-                  {/* Transaction details */}
-                  <div className="bg-black/40 rounded-xl p-4 space-y-3.5 border border-white/4">
-                    {[
-                      { label: 'Transaction #', value: <span className="font-black text-amber-400 font-mono text-xs">{sellerTx.transactionNumber}</span> },
-                      { label: 'Escrow Code',   value: <span className="font-black text-amber-400 font-mono">{sellerTx.escrowCode}</span> },
-                      { label: 'Amount',        value: <span className="font-black text-lg">{sellerTx.amount} <span className="text-amber-400 text-sm">Pi</span></span> },
-                      { label: 'Buyer',         value: <span className="font-black text-sm">@{sellerTx.buyerUsername}</span> },
-                      { label: 'Status',        value: <StatusBadge status={sellerTx.status} /> },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="flex items-center justify-between">
-                        <span className="text-[9px] uppercase font-black tracking-widest text-neutral-600">{label}</span>
-                        {value}
-                      </div>
-                    ))}
-                    {sellerTx.description && (
-                      <div className="pt-1 border-t border-white/4">
-                        <div className="text-[9px] uppercase font-black tracking-widest text-neutral-600 mb-1.5">Deal Terms</div>
-                        <p className="text-sm text-neutral-300 leading-relaxed">{sellerTx.description}</p>
-                      </div>
-                    )}
-                    {sellerTx.deliveryDeadline && sellerTx.status === 'ACCEPTED' && (
-                      <div className="flex items-center gap-1.5 text-[10px] text-amber-500/60">
-                        <Clock size={10} />
-                        Deliver by {new Date(sellerTx.deliveryDeadline).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-
-                  {sellerTx.status === 'PENDING' && (
-                    <div className="space-y-3">
-                      <InfoBox message="Step 1 — Review the deal terms above and accept to lock funds securely." />
-                      <PrimaryButton onClick={handleAcceptDeal} disabled={sellerLoading}>
-                        {sellerLoading ? <><Spinner /> Processing…</> : <><Shield size={14} /> Accept Deal & Lock Funds</>}
-                      </PrimaryButton>
-                    </div>
-                  )}
-
-                  {sellerTx.status === 'ACCEPTED' && (
-                    <div className="space-y-3">
-                      <InfoBox message="Step 2 — Send the goods or deliver your service, then press Confirm Delivery." />
-                      <PrimaryButton onClick={handleConfirmDelivery} disabled={sellerLoading}>
-                        {sellerLoading ? <><Spinner /> Processing…</> : <><Package size={14} /> Confirm Delivery</>}
-                      </PrimaryButton>
-                    </div>
-                  )}
-
-                  {sellerTx.status === 'DELIVERED' && (
-                    <InfoBox message="Delivery confirmed. Waiting for buyer to release funds using their Secret Key." color="blue" />
-                  )}
-
-                  {sellerTx.status === 'RELEASED' && (
-                    <div className="space-y-3">
-                      <SuccessBox message="Funds have been released to your wallet. Transaction complete!" />
-                      {!sellerTx.rating && (
-                        <Card className="p-4">
-                          <p className="text-[10px] font-black text-neutral-500 mb-3">Rate this transaction</p>
-                          <StarRating onRate={async n => {
-                            try { await submitRating(sellerTx.escrowCode, n, user.username); setSellerTx({ ...sellerTx, rating: n }); } catch {}
-                          }} />
-                        </Card>
-                      )}
-                    </div>
-                  )}
-
-                  {sellerError && <ErrorBox message={sellerError} />}
-
-                  <button onClick={() => { setSellerTx(null); setSellerCode(''); }}
-                    className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
-                    ← Look up another escrow
-                  </button>
-                </div>
-              )}
-            </Card>
-          </div>
-        )}
-
-        {/* ══════════════ TRANSACTIONS TAB ══════════════ */}
-        {tab === 'transactions' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-0.5">
-              <h2 className="text-base font-black tracking-tight">My Deals</h2>
-              <button onClick={loadTransactions}
-                className="flex items-center gap-1.5 text-[10px] font-black text-amber-500 hover:text-amber-400 transition-colors">
-                <RefreshCw size={11} className={txLoading ? 'animate-spin' : ''} /> Refresh
-              </button>
-            </div>
-
-            {txLoading && (
-              <div className="flex justify-center py-16">
-                <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
-              </div>
-            )}
-
-            {!txLoading && transactions.length === 0 && (
-              <div className="text-center py-20 text-neutral-700">
-                <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
-                <p className="font-black text-sm">No transactions yet</p>
-                <p className="text-xs mt-1 opacity-60">Create your first escrow to get started</p>
-              </div>
-            )}
-
-            {transactions.map(tx => (
-              <Card key={tx._id} className="p-4 space-y-3 hover:border-white/10 transition-colors">
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-amber-400 tracking-wider text-[11px] font-mono">{tx.transactionNumber || tx.escrowCode}</span>
-                  <StatusBadge status={tx.status} />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-neutral-600 text-[11px]">Amount</span>
-                  <span className="font-black text-sm">{tx.amount} <span className="text-amber-400 text-xs">Pi</span></span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-neutral-600 text-[11px]">
-                    {tx.buyerUsername === user.username ? 'Seller wallet' : 'Buyer'}
-                  </span>
-                  <span className="font-black text-[11px] font-mono text-neutral-300">
-                    {tx.buyerUsername === user.username
-                      ? tx.sellerWallet.slice(0, 6) + '…' + tx.sellerWallet.slice(-4)
-                      : '@' + tx.buyerUsername}
-                  </span>
-                </div>
-
-                {tx.description && (
-                  <p className="text-[10px] text-neutral-600 leading-relaxed border-t border-white/4 pt-2.5">{tx.description}</p>
-                )}
-
-                <div className="text-[9px] text-neutral-700 flex items-center gap-1">
-                  <Clock size={9} />
-                  {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </div>
-
-                <div className="space-y-2 pt-1">
-                  {tx.status === 'DELIVERED' && tx.buyerUsername === user.username && (
-                    <button onClick={() => { setTab('buyer'); setReleaseCode(tx.escrowCode); }}
-                      className="w-full py-2.5 bg-amber-500/8 border border-amber-500/20 text-amber-400 font-black rounded-xl text-[11px] hover:bg-amber-500/15 transition-all flex items-center justify-center gap-2">
-                      <Key size={11} /> Release Funds
-                    </button>
-                  )}
-                  {['PENDING', 'ACCEPTED', 'DELIVERED'].includes(tx.status) && (
-                    <button onClick={() => openDispute(tx)}
-                      className="w-full py-2.5 bg-rose-500/5 border border-rose-500/15 text-rose-400 font-black rounded-xl text-[11px] hover:bg-rose-500/10 transition-all flex items-center justify-center gap-2">
-                      <AlertTriangle size={11} /> Open Dispute
-                    </button>
-                  )}
-                  {tx.status === 'RELEASED' && !tx.rating && (
-                    <div className="pt-0.5">
-                      <p className="text-[9px] text-neutral-600 mb-2">Rate this deal</p>
-                      <StarRating onRate={async n => {
-                        try {
-                          await submitRating(tx.escrowCode, n, user.username);
-                          setTransactions(prev => prev.map(t => t._id === tx._id ? { ...t, rating: n } : t));
-                        } catch {}
-                      }} />
-                    </div>
-                  )}
-                  {tx.status === 'RELEASED' && tx.rating && (
-                    <div className="flex items-center gap-1 pt-0.5">
-                      {[1,2,3,4,5].map(n => (
-                        <Star key={n} size={13} className={n <= tx.rating! ? 'text-amber-400' : 'text-neutral-800'} fill={n <= tx.rating! ? 'currentColor' : 'none'} />
-                      ))}
-                      <span className="text-[9px] text-neutral-600 ml-1">Rated</span>
-                    </div>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* ══════════════ STATS TAB ══════════════ */}
-        {tab === 'stats' && (
-          <div className="space-y-4">
-            <div className="px-0.5">
-              <h2 className="text-base font-black tracking-tight">Statistics</h2>
-              <p className="text-[10px] text-neutral-600 mt-0.5">@{user.username}'s trading overview</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Total Deals',    value: stats.total,              accent: 'text-white',        bg: '',                     icon: Activity },
-                { label: 'Completed',      value: stats.released,           accent: 'text-emerald-400',  bg: 'border-emerald-500/10', icon: CheckCircle2 },
-                { label: 'Disputed',       value: stats.disputed,           accent: 'text-rose-400',     bg: 'border-rose-500/10',   icon: AlertTriangle },
-                { label: 'Pi Transacted',  value: stats.totalPi.toFixed(1) + ' π', accent: 'text-amber-400', bg: 'border-amber-500/10', icon: TrendingUp },
-              ].map(({ label, value, accent, bg, icon: Icon }) => (
-                <Card key={label} className={`p-4 ${bg}`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <Icon size={14} className={`${accent} opacity-60`} />
-                  </div>
-                  <div className={`text-2xl font-black ${accent}`}>{value}</div>
-                  <div className="text-[9px] text-neutral-600 uppercase tracking-widest mt-1">{label}</div>
-                </Card>
-              ))}
-            </div>
-
-            {/* Success rate bar */}
-            {stats.total > 0 && (
-              <Card className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Success Rate</span>
-                  <span className="text-sm font-black text-emerald-400">
-                    {Math.round((stats.released / stats.total) * 100)}%
-                  </span>
-                </div>
-                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700"
-                    style={{ width: `${(stats.released / stats.total) * 100}%` }} />
-                </div>
-                <div className="flex justify-between text-[9px] text-neutral-700 mt-2">
-                  <span>{stats.released} completed</span>
-                  <span>{stats.total - stats.released} pending / disputed</span>
-                </div>
-              </Card>
-            )}
-
-            {/* Support */}
-            <Card className="p-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Mail size={13} className="text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black">Support</h3>
-                  <p className="text-[9px] text-neutral-600">Get help from our team</p>
-                </div>
-              </div>
-              <PrimaryButton variant="ghost" onClick={() => window.open('mailto:Riahig45@gmail.com?subject=PTrust Oracle Support')}>
-                <Mail size={13} /> Contact Support
-              </PrimaryButton>
-            </Card>
-          </div>
-        )}
-
+        {/* Tab content */}
+        {tab === 'buyer'        && <BuyerTab user={user} />}
+        {tab === 'seller'       && <SellerTab user={user} />}
+        {tab === 'transactions' && <TransactionsTab user={user} onNavigate={navigate} />}
+        {tab === 'stats'        && <StatsTab user={user} />}
       </div>
     </main>
   );
 }
 
-const globalStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT COMPONENT — uses PiSDKProvider
+// ─────────────────────────────────────────────────────────────────────────────
+export default function HomePage() {
+  const { user, loading, authenticateUser } = usePiSDK();
+  const [expired, setExpired] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  * { -webkit-font-smoothing: antialiased; }
+  useEffect(() => { setMounted(true); }, []);
 
-  input::placeholder, textarea::placeholder { color: #333; }
+  const handleExpire = useCallback(() => setExpired(true), []);
+  useSessionTimer(handleExpire, !!user);
 
-  input:focus, textarea:focus {
-    box-shadow: 0 0 0 1px rgba(245,158,11,0.2), 0 4px 16px rgba(245,158,11,0.05);
+  if (!mounted) return null;
+
+  if (expired) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6 bg-[#080808] text-white">
+        <div className="text-center space-y-6 max-w-xs w-full">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <Clock size={24} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black">Session Expired</h2>
+            <p className="text-neutral-500 text-sm mt-2 leading-relaxed">
+              You were inactive for 30 minutes. Please sign in again.
+            </p>
+          </div>
+          <PrimaryBtn onClick={() => { setExpired(false); authenticateUser(); }}>
+            <Wallet size={15} /> Sign In Again
+          </PrimaryBtn>
+        </div>
+      </main>
+    );
   }
 
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-
-  .font-mono { font-family: 'DM Mono', 'Courier New', monospace; }
-`;
+  if (!user) return <Landing onLogin={authenticateUser} loading={loading} />;
+  return <App user={user} onLogout={() => window.location.reload()} />;
+}
