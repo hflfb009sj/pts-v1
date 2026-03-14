@@ -4,7 +4,8 @@ import { getDb } from '@/lib/mongodb';
 export async function POST(request: NextRequest) {
   try {
     const { escrowCode, username, content } = await request.json();
-    if (!escrowCode  !username  !content?.trim()) throw new Error('All fields required');
+    if (!escrowCode || !username || !content?.trim())
+ throw new Error('All fields required');
 
     const db = await getDb();
     const dispute = await db.collection('disputes').findOne({ escrowCode: escrowCode.toUpperCase() });
