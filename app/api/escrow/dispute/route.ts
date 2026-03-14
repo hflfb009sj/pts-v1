@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       evidence:          [],
       judges,
       votes:             [],
-      auditLog: [{ action: 'OPENED', by: buyerUsername, at: now, note: ${judges.length} judges assigned }],
+      auditLog: [{ action: 'OPENED', by: buyerUsername, at: now, note: `${judges.length} judges assigned` }],
     });
 
     await db.collection('transactions').updateOne(

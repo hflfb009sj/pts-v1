@@ -1,4 +1,3 @@
-cat > app/api/escrow/judges/route.ts << 'EOF'
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { sendPiFromEscrow, sendCommission, validateEscrowBalance } from '@/lib/stellar';
@@ -6,7 +5,7 @@ import { sendPiFromEscrow, sendCommission, validateEscrowBalance } from '@/lib/s
 export async function POST(request: NextRequest) {
   try {
     const { escrowCode, judgeUsername, vote, reasoning } = await request.json();
-    if (!escrowCode  !judgeUsername  !vote) throw new Error('All fields required');
+    if (!escrowCode || !judgeUsername || !vote) throw new Error('All fields required');
     if (!['SELLER', 'BUYER'].includes(vote)) throw new Error('vote must be SELLER or BUYER');
 
     const db = await getDb();
@@ -42,8 +41,8 @@ export async function POST(request: NextRequest) {
       let newStatus = '';
 
       if (winner === 'SELLER') {
-        const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: Fee ${tx.escrowCode} });
-        const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: PTrust ${tx.escrowCode} });
+        const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: `Fee ${tx.escrowCode}` });
+        const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: `PTrust ${tx.escrowCode}` });
         sellerTxHash     = sellTx.txHash;
         commissionTxHash = commTx.txHash;
         newStatus = 'RELEASED';
@@ -59,8 +58,8 @@ export async function POST(request: NextRequest) {
       await db.collection('transactions').updateOne(
         { escrowCode: escrowCode.toUpperCase() },
         {
-          $set: { status: newStatus, releasedAt: now, updatedAt: now, sellerTxHash: sellerTxHash  undefined, commissionTxHash: commissionTxHash  undefined },
-          $push: { auditLog: { action: DISPUTE_${winner}_WON, by: 'judges', at: now, note: Judges ruled for ${winner} } } as any,
+          $set: { status: newStatus, releasedAt: now, updatedAt: now, sellerTxHash: sellerTxHash || undefined, commissionTxHash: commissionTxHash || undefined },
+          $push: { auditLog: { action: `DISPUTE_${winner}_WON`, by: 'judges', at: now, note: `Judges ruled for ${winner}` } } as any,
         }
       );
 
@@ -72,4 +71,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-EOF

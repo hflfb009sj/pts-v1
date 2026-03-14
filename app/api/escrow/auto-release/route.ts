@@ -4,7 +4,7 @@ import { sendPiFromEscrow, sendCommission, validateEscrowBalance } from '@/lib/s
 
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== Bearer ${process.env.CRON_SECRET})
+  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db  = await getDb();
@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
   for (const tx of stale) {
     try {
       await validateEscrowBalance(tx.amount + tx.fee);
-      const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: Fee ${tx.escrowCode} });
-      const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: PTrust ${tx.escrowCode} });
+      const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: `Fee ${tx.escrowCode}` });
+      const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: `PTrust ${tx.escrowCode}` });
       await db.collection('transactions').updateOne(
         { escrowCode: tx.escrowCode },
         {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
         }
       );
       results.autoReleased++;
-    } catch (e: any) { results.errors.push(${tx.escrowCode}: ${e.message}); }
+    } catch (e: any) { results.errors.push(`${tx.escrowCode}: ${e.message}`); }
   }
 
   // Expire disputes with no evidence
@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
       const tx = await db.collection('transactions').findOne({ escrowCode: dispute.escrowCode });
       if (!tx) continue;
       await validateEscrowBalance(tx.amount + tx.fee);
-      const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: Fee ${tx.escrowCode} });
-      const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: PTrust ${tx.escrowCode} });
+      const commTx = await sendCommission({ amount: tx.fee.toFixed(7), memo: `Fee ${tx.escrowCode}` });
+      const sellTx = await sendPiFromEscrow({ destinationWallet: tx.sellerWallet, amount: tx.amount.toFixed(7), memo: `PTrust ${tx.escrowCode}` });
       await db.collection('disputes').updateOne({ escrowCode: dispute.escrowCode }, { $set: { status: 'EXPIRED', resolvedAt: now, resolvedFor: 'SELLER' } });
       await db.collection('transactions').updateOne(
         { escrowCode: dispute.escrowCode },
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
         }
       );
       results.disputeExpired++;
-    } catch (e: any) { results.errors.push(Dispute ${dispute.escrowCode}: ${e.message}); }
+    } catch (e: any) { results.errors.push(`Dispute ${dispute.escrowCode}: ${e.message}`); }
   }
 
   return NextResponse.json({ success: true, ...results, timestamp: now.toISOString() });

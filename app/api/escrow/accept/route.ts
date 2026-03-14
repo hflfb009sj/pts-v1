@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
         { escrowCode: escrowCode.toUpperCase() },
         { $inc: { sellerKeyAttempts: 1 } as any }
       );
-      throw new Error(Invalid Seller Key — ${4 - (tx.sellerKeyAttempts || 0)} attempts remaining);
+      throw new Error(`Invalid Seller Key — ${4 - (tx.sellerKeyAttempts || 0)} attempts remaining`);
     }
 
     const now = new Date();

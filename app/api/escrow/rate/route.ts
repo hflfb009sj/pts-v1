@@ -1,4 +1,3 @@
-cat > app/api/escrow/rate/route.ts << 'EOF'
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 
@@ -6,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const { escrowCode, rating, raterUsername } = await request.json();
     if (!escrowCode || !raterUsername) throw new Error('All fields required');
-    if (!rating  rating < 1  rating > 5) throw new Error('Rating must be 1-5');
+    if (!rating || rating < 1 || rating > 5) throw new Error('Rating must be 1-5');
 
     const db = await getDb();
     const tx = await db.collection('transactions').findOne({ escrowCode: escrowCode.toUpperCase() });
@@ -20,7 +19,7 @@ export async function POST(request: NextRequest) {
       { escrowCode: escrowCode.toUpperCase() },
       {
         $set: { rating, ratedBy: raterUsername, ratedAt: now, updatedAt: now },
-        $push: { auditLog: { action: 'RATED', by: raterUsername, at: now, note: ${rating}/5 } } as any,
+        $push: { auditLog: { action: 'RATED', by: raterUsername, at: now, note: `${rating}/5` } } as any,
       }
     );
     return NextResponse.json({ success: true, rating });
@@ -28,4 +27,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-EOF

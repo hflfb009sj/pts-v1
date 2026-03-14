@@ -4,11 +4,11 @@ import { hash } from 'bcryptjs';
 import { generateEscrowCode, generateBuyerKey, generateSellerKey, generateTransactionNumber } from '@/lib/escrow-helpers';
 
 async function approvePiPayment(paymentId: string) {
-  const res = await fetch(https://api.minepi.com/v2/payments/${paymentId}/approve, {
+  const res = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/approve`, {
     method: 'POST',
-    headers: { Authorization: Key ${process.env.PI_API_KEY}, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Key ${process.env.PI_API_KEY}`, 'Content-Type': 'application/json' },
   });
-  if (!res.ok) throw new Error(Pi approval failed: ${res.status});
+  if (!res.ok) throw new Error(`Pi approval failed: ${res.status}`);
   return res.json();
 }
 
