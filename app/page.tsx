@@ -1293,10 +1293,175 @@ function StatsTab({ user }: { user: PiUser }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ADMIN TAB — Only for GhaithriAHI96
+// ─────────────────────────────────────────────────────────────────────────────
+function AdminTab({ username }: { username: string }) {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [stats, setStats]               = useState<any>(null);
+  const [loading, setLoading]           = useState(false);
+  const [selected, setSelected]         = useState<Transaction | null>(null);
+  const [reason, setReason]             = useState('');
+  const [msg, setMsg]                   = useState<string | null>(null);
+  const [err, setErr]                   = useState<string | null>(null);
+  const [filter, setFilter]             = useState('ALL');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/admin', { action: 'getAll', username });
+      setTransactions(res.transactions);
+      setStats(res.stats);
+    } catch (e: any) { setErr(e.message); }
+    finally { setLoading(false); }
+  }, [username]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (action: string, escrowCode: string, extra?: object) => {
+    setMsg(null); setErr(null);
+    try {
+      const res = await apiFetch('/api/admin', { action, username, escrowCode, reason, ...extra });
+      setMsg(res.message); setSelected(null); setReason(''); load();
+    } catch (e: any) { setErr(e.message); }
+  };
+
+  const filtered = filter === 'ALL' ? transactions : transactions.filter(t => t.status === filter);
+
+  return (
+    <div className="space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-red-950/40 to-violet-950/40 border border-red-500/20">
+        <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/25 flex items-center justify-center">
+          <Shield size={18} className="text-red-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-black text-red-400 tracking-widest uppercase">Admin Panel</h2>
+          <p className="text-[10px] text-neutral-600">Full control · @{username}</p>
+        </div>
+        <button onClick={load} className="ml-auto w-8 h-8 rounded-lg bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-red-400 transition-all">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-5 gap-2">
+          {[
+            { l: 'Total',     v: stats.total,     c: 'text-white'       },
+            { l: 'Pending',   v: stats.pending,   c: 'text-amber-400'   },
+            { l: 'Delivered', v: stats.delivered, c: 'text-sky-400'     },
+            { l: 'Frozen',    v: stats.frozen,    c: 'text-blue-400'    },
+            { l: 'Released',  v: stats.released,  c: 'text-emerald-400' },
+          ].map(s => (
+            <div key={s.l} className="bg-[#0d0d0d] border border-white/6 rounded-xl p-2.5 text-center">
+              <div className={'text-lg font-black ' + s.c}>{s.v}</div>
+              <div className="text-[8px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filter */}
+      <div className="flex gap-1.5 flex-wrap">
+        {['ALL', 'PENDING', 'DELIVERED', 'FROZEN', 'RELEASED', 'REFUNDED', 'PENDING_ADMIN'].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={'px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ' +
+              (filter === f
+                ? 'bg-red-500/20 border border-red-500/30 text-red-400'
+                : 'bg-white/4 border border-white/6 text-neutral-600 hover:text-neutral-300')}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {msg && <OkBox msg={msg} />}
+      {err && <ErrBox msg={err} />}
+
+      {/* Action Panel */}
+      {selected && (
+        <div className="p-5 rounded-2xl bg-red-950/20 border border-red-500/25 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">Selected</p>
+              <p className="text-sm font-black text-red-400 font-mono">{selected.escrowCode}</p>
+              <p className="text-[10px] text-neutral-500">{selected.amount} Pi · @{selected.buyerUsername}</p>
+            </div>
+            <button onClick={() => setSelected(null)} className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center text-neutral-600 hover:text-white">
+              <XCircle size={13} />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">Reason / Note</label>
+            <input placeholder="Reason for this action…" value={reason} onChange={e => setReason(e.target.value)}
+              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm transition-all placeholder-neutral-700 text-neutral-200" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => doAction('refund', selected.escrowCode)}
+              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-black hover:bg-emerald-500/15 transition-all flex items-center justify-center gap-1.5">
+              <ArrowRight size={12} /> Refund to Buyer
+            </button>
+            <button onClick={() => doAction('freeze', selected.escrowCode)}
+              className="py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-black hover:bg-blue-500/15 transition-all flex items-center justify-center gap-1.5">
+              <Lock size={12} /> Freeze
+            </button>
+            <button onClick={() => doAction('resolve', selected.escrowCode, { resolveFor: 'seller' })}
+              className="py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-black hover:bg-amber-500/15 transition-all flex items-center justify-center gap-1.5">
+              <CheckCircle2 size={12} /> Release to Seller
+            </button>
+            <button onClick={() => doAction('resolve', selected.escrowCode, { resolveFor: 'buyer' })}
+              className="py-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[11px] font-black hover:bg-violet-500/15 transition-all flex items-center justify-center gap-1.5">
+              <Shield size={12} /> Resolve for Buyer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* List */}
+      {loading && (
+        <div className="flex justify-center py-10">
+          <div className="animate-spin h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {filtered.map(tx => (
+        <div key={tx._id}
+          onClick={() => setSelected(selected?.escrowCode === tx.escrowCode ? null : tx)}
+          className={'p-4 rounded-2xl border cursor-pointer transition-all space-y-2 ' +
+            (selected?.escrowCode === tx.escrowCode
+              ? 'border-red-500/40 bg-red-950/15'
+              : 'border-white/6 bg-[#0d0d0d] hover:border-white/12')}>
+          <div className="flex items-center justify-between">
+            <span className="font-black text-[11px] font-mono text-red-400/80">{tx.transactionNumber || tx.escrowCode}</span>
+            <StatusBadge status={tx.status} />
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-neutral-600">@{tx.buyerUsername} → @{tx.sellerUsername || '?'}</span>
+            <span className="font-black text-white">{tx.amount} <span className="text-amber-400">Pi</span></span>
+          </div>
+          {tx.description && <p className="text-[9px] text-neutral-700 truncate">{tx.description}</p>}
+          <div className="text-[9px] text-neutral-700">
+            {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+        </div>
+      ))}
+
+      {!loading && filtered.length === 0 && (
+        <div className="text-center py-16 text-neutral-700">
+          <Shield size={28} className="mx-auto mb-3 opacity-20" />
+          <p className="text-sm font-black">No transactions</p>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN APP (authenticated)
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats'>('buyer');
+  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
   // For deep-linking from transactions tab
   const navigate = useCallback((dest: string, code?: string) => {
@@ -1331,18 +1496,20 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         </div>
 
         {/* Tab bar */}
-        <div className="grid grid-cols-4 gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl">
+        <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-5' : 'grid-cols-4')}>
           {([
-            { key: 'buyer',        label: 'Buyer',  Icon: Lock          },
+           { key: 'buyer',        label: 'Buyer',  Icon: Lock          },
             { key: 'seller',       label: 'Seller', Icon: Package       },
             { key: 'transactions', label: 'Deals',  Icon: ClipboardList },
             { key: 'stats',        label: 'Stats',  Icon: BarChart3     },
+            ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
           ] as const).map(({ key, label, Icon }) => (
+
             <button key={key} onClick={() => setTab(key)}
               className={
                 'flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-[9px] font-black tracking-wide transition-all duration-200 ' +
                 (tab === key
-                  ? 'bg-amber-500 text-black shadow-[0_4px_16px_rgba(245,158,11,0.25)]'
+                  ? (key === 'admin' ? 'bg-red-500 text-white shadow-[0_4px_16px_rgba(239,68,68,0.3)]' : 'bg-amber-500 text-black shadow-[0_4px_16px_rgba(245,158,11,0.25)]')
                   : 'text-neutral-600 hover:text-neutral-300')
               }>
               <Icon size={13} />{label}
@@ -1351,10 +1518,11 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         </div>
 
         {/* Tab content */}
-        {tab === 'buyer'        && <BuyerTab user={user} />}
-        {tab === 'seller'       && <SellerTab user={user} />}
-        {tab === 'transactions' && <TransactionsTab user={user} onNavigate={navigate} />}
-        {tab === 'stats'        && <StatsTab user={user} />}
+        {tab === 'buyer'        && <BuyerTab        username={username} />}
+        {tab === 'seller'       && <SellerTab        username={username} />}
+        {tab === 'transactions' && <TransactionsTab  username={username} />}
+        {tab === 'stats'        && <StatsTab         username={username} />}
+        {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
       </div>
     </main>
   );
