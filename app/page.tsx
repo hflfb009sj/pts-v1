@@ -1518,10 +1518,10 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         </div>
 
         {/* Tab content */}
-        {tab === 'buyer'        && <BuyerTab        username={username} />}
-        {tab === 'seller'       && <SellerTab        username={username} />}
-        {tab === 'transactions' && <TransactionsTab  username={username} />}
-        {tab === 'stats'        && <StatsTab         username={username} />}
+        {tab === 'buyer'        && <BuyerTab        user={user} />}
+        {tab === 'seller'       && <SellerTab        user={user} />}
+        {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
+        {tab === 'stats'        && <StatsTab         user={user} />}
         {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
       </div>
     </main>
