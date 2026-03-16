@@ -1,84 +1,81 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import Script from 'next/script';
 import { PiUser, PiAuthenticationResult, PiSDK } from '@/types/pi';
 
 interface PiContextType {
-    user: PiUser | null;
-    loading: boolean;
-    authenticateUser: () => Promise<void>;
+  user: PiUser | null;
+  loading: boolean;
+  authenticateUser: () => Promise<void>;
 }
 
 const PiContext = createContext<PiContextType | undefined>(undefined);
 
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
-    const [user, setUser] = useState<PiUser | null>(null);
-    const [loading, setLoading] = useState<boolean>(false);
+  const [user, setUser]         = useState<PiUser | null>(null);
+  const [loading, setLoading]   = useState<boolean>(false);
+  const [sdkReady, setSdkReady] = useState<boolean>(false);
 
-    const onIncompletePaymentFound = useCallback((payment: any) => {
-        console.warn('[PTrust Oracle] Incomplete payment found:', payment);
-    }, []);
+  const onIncompletePaymentFound = useCallback((payment: any) => {
+    console.warn('[PTrust] Incomplete payment:', payment);
+  }, []);
 
-    const initPi = useCallback(() => {
-        const piWindow = (window as any).Pi;
-        if (piWindow) {
-            try {
-                (piWindow as PiSDK).init({
-                    version: '2.0',
-                    sandbox: false
-                });
-                console.log('[PTrust Oracle] Pi SDK initialized.');
-            } catch (error) {
-                console.error('[PTrust Oracle] Failed to initialize Pi SDK:', error);
-            }
-        }
-    }, []);
+  const initPi = useCallback(() => {
+    const Pi = (window as any).Pi;
+    if (Pi) {
+      try {
+        Pi.init({ version: '2.0', sandbox: false });
+        setSdkReady(true);
+      } catch (e) {
+        console.error('[PTrust] Init failed:', e);
+      }
+    }
+  }, []);
 
-    const authenticateUser = async () => {
-        const piWindow = (window as any).Pi;
-        if (!piWindow) {
-            console.error('[PTrust Oracle] Pi SDK not found.');
-            return;
-        }
-        setLoading(true);
-        try {
-            const auth: PiAuthenticationResult = await (piWindow as PiSDK).authenticate(
-                ['username', 'payments', 'wallet_address'],
-                onIncompletePaymentFound
-            );
-            setUser(auth.user);
-            console.log('[PTrust Oracle] Authenticated:', auth.user.username);
-        } catch (error) {
-            console.error('[PTrust Oracle] Authentication failed:', error);
-        } finally {
-            setLoading(false);
-        }
+  useEffect(() => {
+    const loadSdk = () => {
+      const script = document.createElement('script');
+      script.src = 'https://sdk.minepi.com/pi-sdk.js';
+      script.async = true;
+      script.onload = () => initPi();
+      document.head.appendChild(script);
     };
+    if ((window as any).Pi) {
+      initPi();
+    } else {
+      loadSdk();
+      const interval = setInterval(() => {
+        if ((window as any).Pi) { clearInterval(interval); initPi(); }
+      }, 300);
+      const timeout = setTimeout(() => clearInterval(interval), 10000);
+      return () => { clearInterval(interval); clearTimeout(timeout); };
+    }
+  }, [initPi]);
 
-    useEffect(() => {
-        if ((window as any).Pi) {
-            initPi();
-        }
-    }, [initPi]);
+  const authenticateUser = async () => {
+    const Pi = (window as any).Pi;
+    setLoading(true);
+    try {
+      const auth: PiAuthenticationResult = await (Pi as PiSDK).authenticate(
+        ['username', 'payments', 'wallet_address'],
+        onIncompletePaymentFound
+      );
+      setUser(auth.user);
+    } catch (error) {
+      console.error('[PTrust] Auth failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return (
-        <PiContext.Provider value={{ user, loading, authenticateUser }}>
-            <Script
-                src="https://sdk.minepi.com/pi-sdk.js"
-                strategy="lazyOnload"
-                onLoad={initPi}
-                onError={() => console.error('[PTrust Oracle] Pi SDK failed to load.')}
-            />
-            {children}
-        </PiContext.Provider>
-    );
+  return (
+    <PiContext.Provider value={{ user, loading, authenticateUser }}>
+      {children}
+    </PiContext.Provider>
+  );
 };
 
 export const usePiSDK = () => {
-    const context = useContext(PiContext);
-    if (context === undefined) {
-        throw new Error('usePiSDK must be used within a PiSDKProvider');
-    }
-    return context;
+  const context = useContext(PiContext);
+  return context;
 };
