@@ -3,6 +3,8 @@ import { getDb } from "@/lib/mongodb";
 import { hash } from "bcryptjs";
 import { generateEscrowCode, generateBuyerKey, generateSellerKey, generateTransactionNumber } from "@/lib/escrow-helpers";
 
+export const maxDuration = 30;
+
 async function approvePiPayment(paymentId: string) {
   const res = await fetch("https://api.minepi.com/v2/payments/" + paymentId + "/approve", {
     method: "POST",
