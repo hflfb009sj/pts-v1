@@ -44,7 +44,7 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
     const Pi = (window as any).Pi;
     if (Pi) {
       try {
-        Pi.init({ version: '2.0', sandbox: false });
+        Pi.init({ version: '2.0', sandbox: true });
         setSdkReady(true);
       } catch (e) {
         console.error('[PTrust] Init failed:', e);
