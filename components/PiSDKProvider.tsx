@@ -9,7 +9,7 @@ interface PiContextType {
   authenticateUser: () => Promise<void>;
 }
 
-const PiContext = createContext<PiContextType | undefined>(undefined);
+const PiContext = createContext<PiContextType>({   user: null,   loading: false,   authenticateUser: async () => {}, });
 
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser]         = useState<PiUser | null>(null);
