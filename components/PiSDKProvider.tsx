@@ -9,16 +9,36 @@ interface PiContextType {
   authenticateUser: () => Promise<void>;
 }
 
-const PiContext = createContext<PiContextType | undefined>(undefined);
+const PiContext = createContext<PiContextType>({
+  user: null,
+  loading: false,
+  authenticateUser: async () => {},
+});
 
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser]         = useState<PiUser | null>(null);
-  const [loading, setLoading]   = useState<boolean>(false);
+  const [loading, setLoading]   = useState<boolean>(true);
   const [sdkReady, setSdkReady] = useState<boolean>(false);
 
   const onIncompletePaymentFound = useCallback((payment: any) => {
     console.warn('[PTrust] Incomplete payment:', payment);
   }, []);
+
+  const authenticateUser = useCallback(async () => {
+    const Pi = (window as any).Pi;
+    setLoading(true);
+    try {
+      const auth: PiAuthenticationResult = await (Pi as PiSDK).authenticate(
+        ['username', 'payments', 'wallet_address'],
+        onIncompletePaymentFound
+      );
+      setUser(auth.user);
+    } catch (error) {
+      console.error('[PTrust] Auth failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [onIncompletePaymentFound]);
 
   const initPi = useCallback(() => {
     const Pi = (window as any).Pi;
@@ -34,39 +54,27 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const loadSdk = () => {
+      if ((window as any).Pi) { initPi(); return; }
       const script = document.createElement('script');
       script.src = 'https://sdk.minepi.com/pi-sdk.js';
       script.async = true;
       script.onload = () => initPi();
       document.head.appendChild(script);
-    };
-    if ((window as any).Pi) {
-      initPi();
-    } else {
-      loadSdk();
       const interval = setInterval(() => {
         if ((window as any).Pi) { clearInterval(interval); initPi(); }
       }, 300);
       const timeout = setTimeout(() => clearInterval(interval), 10000);
       return () => { clearInterval(interval); clearTimeout(timeout); };
-    }
+    };
+    loadSdk();
   }, [initPi]);
 
-  const authenticateUser = async () => {
-    const Pi = (window as any).Pi;
-    setLoading(true);
-    try {
-      const auth: PiAuthenticationResult = await (Pi as PiSDK).authenticate(
-        ['username', 'payments', 'wallet_address'],
-        onIncompletePaymentFound
-      );
-      setUser(auth.user);
-    } catch (error) {
-      console.error('[PTrust] Auth failed:', error);
-    } finally {
-      setLoading(false);
+  // Auto-authenticate when SDK is ready
+  useEffect(() => {
+    if (sdkReady) {
+      authenticateUser();
     }
-  };
+  }, [sdkReady, authenticateUser]);
 
   return (
     <PiContext.Provider value={{ user, loading, authenticateUser }}>
@@ -75,7 +83,4 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-export const usePiSDK = () => {
-  const context = useContext(PiContext);
-  return context;
-};
+export const usePiSDK = () => useContext(PiContext);
