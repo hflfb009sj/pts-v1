@@ -525,6 +525,33 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
             </div>
           </div>
 
+          {/* ── Pi Consensus Value ── */}
+          <div className="w-full rounded-2xl border border-violet-500/20 bg-[#0d0d0d] overflow-hidden relative">
+            {/* gradient glow */}
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-950/20 via-transparent to-amber-950/20 pointer-events-none" />
+            <div className="relative flex items-center gap-4 px-5 py-4">
+              {/* Left: π icon tile */}
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'linear-gradient(135deg,#7c3aed33,#f59e0b22)', border: '1px solid #7c3aed40', boxShadow: '0 0 18px rgba(124,58,237,0.15)' }}>
+                <span className="text-2xl font-black" style={{ fontFamily: "'Georgia', serif", lineHeight: 1, background: 'linear-gradient(135deg,#a78bfa,#fbbf24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>π</span>
+              </div>
+              {/* Right: value block */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[9px] uppercase font-black tracking-[0.2em] text-neutral-600">Pi Consensus Value</span>
+                  <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-400 tracking-wider">GCV</span>
+                </div>
+                <div className="text-xl font-black tracking-tight" style={{ background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  1 π = 314,159 GCV
+                </div>
+                <div className="text-[9px] text-neutral-600 mt-0.5">Community Consensus · Global Currency Value</div>
+              </div>
+            </div>
+            <div className="px-5 pb-3">
+              <p className="text-[9px] text-neutral-700 leading-relaxed">Based on Pi Network community consensus</p>
+            </div>
+          </div>
+
           <button
             onClick={onLogin}
             disabled={loading}
