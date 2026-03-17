@@ -20,8 +20,15 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading]   = useState<boolean>(true);
   const [sdkReady, setSdkReady] = useState<boolean>(false);
 
-  const onIncompletePaymentFound = useCallback((payment: any) => {
-    console.warn('[PTrust] Incomplete payment:', payment);
+  const onIncompletePaymentFound = useCallback(async (payment: any) => {
+    console.warn('[PTrust] Incomplete payment:', payment.identifier);
+    try {
+      await fetch('/api/escrow/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId: payment.identifier, txid: payment.transaction?.txid || '' }),
+      });
+    } catch (e) { console.error(e); }
   }, []);
 
   const authenticateUser = useCallback(async () => {
