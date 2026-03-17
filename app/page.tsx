@@ -312,6 +312,45 @@ const FAQS = [
 function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }) {
   const [section, setSection] = useState<string | null>(null);
 
+  // ── Pi Price Ticker ──
+  const [piPrice, setPiPrice]         = useState<number | null>(null);
+  const [priceSource, setPriceSource] = useState<'Kraken' | 'CoinGecko'>('Kraken');
+  const [priceLoading, setPriceLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPrice() {
+      setPriceLoading(true);
+      try {
+        // Primary: Kraken
+        const res  = await fetch('https://api.kraken.com/0/public/Ticker?pair=PIUSD');
+        const data = await res.json();
+        const ticker = data?.result?.PIUSD ?? data?.result?.['PI/USD'];
+        const price  = ticker ? parseFloat(ticker.c[0]) : NaN;
+        if (!cancelled && !isNaN(price)) {
+          setPiPrice(price);
+          setPriceSource('Kraken');
+          return;
+        }
+      } catch { /* fall through */ }
+      try {
+        // Fallback: CoinGecko
+        const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=pi-network&vs_currencies=usd');
+        const data = await res.json();
+        const price = data?.['pi-network']?.usd;
+        if (!cancelled && price) {
+          setPiPrice(price);
+          setPriceSource('CoinGecko');
+        }
+      } catch { /* give up */ }
+      if (!cancelled) setPriceLoading(false);
+    }
+    fetchPrice().finally(() => { if (!cancelled) setPriceLoading(false); });
+    const interval = setInterval(fetchPrice, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+
   const sections = [
     {
       key: 'how',
@@ -450,6 +489,40 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
                 <div className="text-[9px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
               </div>
             ))}
+          </div>
+
+          {/* ── Pi Price Ticker ── */}
+          <div className="w-full rounded-2xl border border-amber-500/20 bg-[#0d0d0d] overflow-hidden relative">
+            {/* subtle gradient glow */}
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.06] via-transparent to-transparent pointer-events-none" />
+            <div className="relative flex items-center justify-between px-5 py-4">
+              {/* Left: logo + price */}
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center flex-shrink-0 shadow-[0_0_18px_rgba(245,158,11,0.18)]">
+                  <span className="text-2xl font-black text-amber-400" style={{ fontFamily: "'Georgia', serif", lineHeight: 1 }}>π</span>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase font-black tracking-[0.2em] text-neutral-600 mb-0.5">Pi / USD</div>
+                  {priceLoading ? (
+                    <div className="h-7 w-24 rounded-lg bg-white/6 animate-pulse" />
+                  ) : (
+                    <div className="text-2xl font-black text-amber-400 tracking-tight">
+                      {piPrice !== null ? `$${piPrice.toFixed(4)}` : '—'}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Right: live badge */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+                </span>
+                <span className="text-[9px] font-black text-amber-400 tracking-wider">
+                  Live · {priceSource}
+                </span>
+              </div>
+            </div>
           </div>
 
           <button
