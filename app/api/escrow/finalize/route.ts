@@ -1,42 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
-import { compare } from 'bcryptjs';
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/mongodb";
 
-export async function POST(request: NextRequest) {
+export const maxDuration = 30;
+
+export async function POST(req: NextRequest) {
   try {
-    const { escrowCode, sellerUsername, sellerKey } = await request.json();
-    if (!escrowCode) throw new Error('escrowCode required');
-    if (!sellerUsername) throw new Error('sellerUsername required');
-    if (!sellerKey) throw new Error('Seller Key required');
+    const { paymentId, txid } = await req.json();
+    if (!paymentId) throw new Error("paymentId required");
 
     const db = await getDb();
-    const tx = await db.collection('transactions').findOne({ escrowCode: escrowCode.toUpperCase() });
-
-    if (!tx) throw new Error('Escrow not found');
-    if (tx.status !== 'PENDING') throw new Error('Escrow not available for acceptance');
-    if (tx.buyerUsername === sellerUsername) throw new Error('Buyer cannot accept their own escrow');
-    if ((tx.sellerKeyAttempts || 0) >= 5) throw new Error('Too many failed attempts — contact admin');
-
-    const valid = await compare(sellerKey, tx.sellerKey);
-    if (!valid) {
-      await db.collection('transactions').updateOne(
-        { escrowCode: escrowCode.toUpperCase() },
-        { $inc: { sellerKeyAttempts: 1 } as any }
-      );
-      throw new Error(`Invalid Seller Key — ${4 - (tx.sellerKeyAttempts || 0)} attempts remaining`);
-    }
-
     const now = new Date();
-    await db.collection('transactions').updateOne(
-      { escrowCode: escrowCode.toUpperCase() },
+
+    await db.collection("transactions").updateOne(
+      { paymentId },
       {
-        $set: { status: 'ACCEPTED', sellerUsername, sellerKeyAttempts: 0, acceptedAt: now, updatedAt: now },
-        $push: { auditLog: { action: 'ACCEPTED', by: sellerUsername, at: now, note: 'Seller accepted with Seller Key' } } as any,
+        $set: { txid: txid || null, piConfirmed: true, updatedAt: now },
+        $push: { auditLog: { action: "PI_CONFIRMED", by: "system", at: now, note: "Payment confirmed" } } as any,
       }
     );
 
-    return NextResponse.json({ success: true, message: 'Deal accepted. Funds are locked.' });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Also complete the payment with Pi Network
+    if (txid) {
+      await fetch("https://api.minepi.com/v2/payments/" + paymentId + "/complete", {
+        method: "POST",
+        headers: {
+          "Authorization": "Key " + process.env.PI_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ txid }),
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }
 }
