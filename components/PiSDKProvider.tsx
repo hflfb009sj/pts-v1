@@ -17,7 +17,7 @@ const PiContext = createContext<PiContextType>({
 
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser]         = useState<PiUser | null>(null);
-  const [loading, setLoading]   = useState<boolean>(true);
+  const [loading, setLoading]   = useState<boolean>(false);
   const [sdkReady, setSdkReady] = useState<boolean>(false);
 
   const onIncompletePaymentFound = useCallback(async (payment: any) => {
