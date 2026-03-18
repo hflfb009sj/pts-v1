@@ -78,4 +78,13 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
       return () => { clearInterval(interval); clearTimeout(timeout); };
     };
     loadSdk();
-  }, [initPi]);}
+  }, [initPi]);
+
+  return (
+    <PiContext.Provider value={{ user, loading, authenticateUser }}>
+      {children}
+    </PiContext.Provider>
+  );
+};
+
+export const usePiSDK = () => useContext(PiContext);
