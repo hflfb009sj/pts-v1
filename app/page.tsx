@@ -1829,6 +1829,19 @@ export default function HomePage() {
     );
   }
 
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[#080808]">
+        <div className="flex flex-col items-center gap-4">
+          <h1 className="text-4xl font-black text-white" style={{ fontFamily: "'Georgia', serif" }}>
+            P<span className="text-transparent" style={{ WebkitTextStroke: '2px #f59e0b' }}>TRUST</span>
+          </h1>
+          <div className="animate-spin h-8 w-8 border-2 border-amber-500 border-t-transparent rounded-full" />
+          <p className="text-neutral-600 text-xs tracking-widest uppercase">Connecting to Pi Network…</p>
+        </div>
+      </main>
+    );
+  }
+
   if (!user) return <Landing onLogin={authenticateUser} loading={loading} />;
   return <App user={user} onLogout={() => window.location.reload()} />;
-}
