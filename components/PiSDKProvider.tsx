@@ -78,20 +78,4 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
       return () => { clearInterval(interval); clearTimeout(timeout); };
     };
     loadSdk();
-  }, [initPi]);
-
-  // Auto-authenticate when SDK is ready
-  useEffect(() => {
-    if (sdkReady) {
-      authenticateUser();
-    }
-  }, [sdkReady, authenticateUser]);
-
-  return (
-    <PiContext.Provider value={{ user, loading, authenticateUser }}>
-      {children}
-    </PiContext.Provider>
-  );
-};
-
-export const usePiSDK = () => useContext(PiContext);
+  }, [initPi]);}
