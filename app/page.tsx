@@ -8,7 +8,7 @@ import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
   ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1156,6 +1156,7 @@ function TransactionsTab({
 }) {
   const [list, setList]     = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [query, setQuery]     = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1168,6 +1169,18 @@ function TransactionsTab({
   }, [user.username]);
 
   useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(tx =>
+      (tx.escrowCode        || '').toLowerCase().includes(q) ||
+      (tx.transactionNumber || '').toLowerCase().includes(q) ||
+      (tx.buyerUsername     || '').toLowerCase().includes(q) ||
+      (tx.sellerUsername    || '').toLowerCase().includes(q) ||
+      (tx.description       || '').toLowerCase().includes(q)
+    );
+  }, [list, query]);
 
   const rate = async (escrowCode: string, n: number) => {
     try {
@@ -1187,6 +1200,27 @@ function TransactionsTab({
         </button>
       </div>
 
+      {/* ── Search Bar ── */}
+      <div className="relative">
+        <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
+          <Search size={13} className="text-neutral-600" />
+        </div>
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search by escrow code or username..."
+          className="w-full bg-black/60 border border-white/8 rounded-xl py-2.5 pl-9 pr-9 text-sm focus:border-amber-500/50 outline-none transition-all placeholder-neutral-700 text-neutral-200"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery('')}
+            className="absolute inset-y-0 right-3 flex items-center text-neutral-600 hover:text-neutral-300 transition-colors">
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {loading && (
         <div className="flex justify-center py-16">
           <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
@@ -1201,7 +1235,15 @@ function TransactionsTab({
         </div>
       )}
 
-      {list.map(tx => (
+      {!loading && list.length > 0 && filtered.length === 0 && (
+        <div className="text-center py-16 text-neutral-700">
+          <Search size={28} className="mx-auto mb-3 opacity-30" />
+          <p className="font-black text-sm">No results found</p>
+          <p className="text-xs mt-1 opacity-60">Try a different escrow code or username</p>
+        </div>
+      )}
+
+      {filtered.map(tx => (
         <Card key={tx._id} className="p-4 space-y-3 hover:border-white/10 transition-colors">
           <div className="flex items-center justify-between">
             <span className="font-black text-amber-400 tracking-wider text-[11px] font-mono">
