@@ -1407,7 +1407,11 @@ function ChatTab({ username }: { username: string }) {
   const [newMessage, setNewMessage] = useState('');
   const [chatLoading, setChatLoading] = useState(true);
   const [sending, setSending]     = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+
+  const EMOJIS = ['😊', '👍', '🔒', '✅', '💰', '🤝', '🎉', '🚀', '💎', '🙏', '⭐', '🔥'];
 
   const loadMessages = useCallback(async () => {
     try {
@@ -1424,15 +1428,26 @@ function ChatTab({ username }: { username: string }) {
     return () => clearInterval(interval);
   }, [loadMessages]);
 
-  // Auto-scroll to bottom on new messages
+  // Smooth scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Online users: unique usernames active in last 5 minutes
+  const onlineUsers = useMemo(() => {
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    const seen = new Set<string>();
+    messages.forEach(m => {
+      if (new Date(m.createdAt).getTime() >= fiveMinAgo) seen.add(m.username);
+    });
+    return seen.size;
   }, [messages]);
 
   const handleSend = async () => {
     const text = newMessage.trim();
     if (!text || sending) return;
     setSending(true);
+    setShowEmoji(false);
     try {
       const res  = await fetch('/api/messages', {
         method: 'POST',
@@ -1450,70 +1465,123 @@ function ChatTab({ username }: { username: string }) {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === 'Escape') setShowEmoji(false);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    setNewMessage(prev => (prev + emoji).slice(0, 500));
+    setShowEmoji(false);
+    inputRef.current?.focus();
   };
 
   const remaining = 500 - newMessage.length;
 
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   return (
     <div className="space-y-3">
       <Card className="overflow-hidden">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/5">
           <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
             <MessageCircle size={16} className="text-amber-400" />
           </div>
-          <div>
-            <h2 className="text-base font-black text-white">Community Chat</h2>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-black text-white">Community Chat</h2>
+              {messages.length > 0 && (
+                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                  {messages.length} msg{messages.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-neutral-500">PTrust Oracle Community</p>
+          </div>
+          {/* Online indicator */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex-shrink-0">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+            </span>
+            <span className="text-[9px] font-black text-emerald-400">
+              {onlineUsers > 0 ? `${onlineUsers} online` : 'Live'}
+            </span>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="h-[380px] overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+        {/* ── Messages area ── */}
+        <div className="h-[400px] overflow-y-auto px-4 py-4 space-y-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1a1a1a transparent' }}>
+
+          {/* Loading */}
           {chatLoading && (
-            <div className="flex items-center justify-center h-full">
-              <Spin />
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+              <p className="text-[11px] text-neutral-600">Loading messages…</p>
             </div>
           )}
 
+          {/* Empty state with PTrust Oracle branding */}
           {!chatLoading && messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-neutral-700 gap-3">
-              <MessageCircle size={32} className="opacity-20" />
-              <p className="text-sm font-black">No messages yet.</p>
-              <p className="text-[11px]">Be the first to say hello!</p>
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-2xl bg-amber-500/8 border border-amber-500/15 flex items-center justify-center">
+                  <span className="text-3xl font-black" style={{ fontFamily: "'Georgia', serif", background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>P</span>
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-xl bg-[#0d0d0d] border border-amber-500/20 flex items-center justify-center">
+                  <MessageCircle size={14} className="text-amber-400" />
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-black text-white">PTrust Oracle Community</p>
+                <p className="text-[11px] text-neutral-600 mt-1 leading-relaxed">
+                  No messages yet.<br />Be the first to start the conversation!
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {['🔒 Secure', '🤝 Trusted', '💰 Pi Network'].map(t => (
+                  <span key={t} className="text-[9px] px-2.5 py-1 rounded-full bg-white/4 border border-white/6 text-neutral-600">{t}</span>
+                ))}
+              </div>
             </div>
           )}
 
+          {/* Message list */}
           {!chatLoading && messages.map((msg, i) => {
             const isMe = msg.username === username;
+            const initial = msg.username.charAt(0).toUpperCase();
             return (
-              <div key={msg._id ?? i} className={'flex gap-2.5 ' + (isMe ? 'flex-row-reverse' : '')}>
-                {/* Avatar */}
-                <div className={'w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center text-[11px] font-black ' +
-                  (isMe ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400' : 'bg-white/6 border border-white/8 text-neutral-400')}>
-                  {msg.username.charAt(0).toUpperCase()}
-                </div>
-                {/* Bubble */}
-                <div className={'max-w-[75%] ' + (isMe ? 'items-end' : 'items-start') + ' flex flex-col gap-0.5'}>
-                  <div className={'flex items-center gap-1.5 ' + (isMe ? 'flex-row-reverse' : '')}>
-                    <span className={'text-[9px] font-black ' + (isMe ? 'text-amber-400' : 'text-sky-400')}>
-                      @{msg.username}
-                    </span>
-                    {isMe && (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-500">
-                        You
-                      </span>
-                    )}
-                    <span className="text-[8px] text-neutral-700">
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className={'text-[12px] leading-relaxed px-3 py-2 rounded-2xl ' +
+              <div key={msg._id ?? i} className={'flex gap-2.5 items-end ' + (isMe ? 'flex-row-reverse' : '')}>
+                {/* Avatar circle with first letter */}
+                <div
+                  className={'w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black shadow-sm ' +
                     (isMe
-                      ? 'bg-amber-500/10 border border-amber-500/20 text-neutral-200 rounded-tr-sm'
-                      : 'bg-white/5 border border-white/8 text-neutral-300 rounded-tl-sm')}>
+                      ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-black'
+                      : 'bg-neutral-800 border border-white/10 text-neutral-400')}
+                >
+                  {initial}
+                </div>
+
+                {/* Bubble + meta */}
+                <div className={'flex flex-col gap-1 max-w-[72%] ' + (isMe ? 'items-end' : 'items-start')}>
+                  {/* Username label */}
+                  <span className={'text-[9px] font-black tracking-wide px-1 ' + (isMe ? 'text-amber-400' : 'text-neutral-500')}>
+                    {isMe ? 'You' : '@' + msg.username}
+                  </span>
+                  {/* Message bubble */}
+                  <div
+                    className={'text-[12px] leading-relaxed px-3.5 py-2.5 ' +
+                      (isMe
+                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-black font-medium rounded-2xl rounded-br-sm shadow-[0_4px_16px_rgba(245,158,11,0.2)]'
+                        : 'bg-neutral-800 border border-white/8 text-neutral-200 rounded-2xl rounded-bl-sm')}
+                  >
                     {msg.text}
                   </div>
+                  {/* Timestamp below bubble */}
+                  <span className={'text-[8px] text-neutral-700 px-1 ' + (isMe ? 'text-right' : '')}>
+                    {formatTime(msg.createdAt)}
+                  </span>
                 </div>
               </div>
             );
@@ -1521,35 +1589,66 @@ function ChatTab({ username }: { username: string }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
-        <div className="border-t border-white/5 p-3">
-          <div className="flex gap-2 items-center">
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={e => setNewMessage(e.target.value.slice(0, 500))}
-                onKeyDown={handleKeyDown}
-                placeholder="Write a message…"
-                disabled={sending}
-                className={'w-full bg-black/60 border rounded-xl py-2.5 px-3.5 text-sm outline-none transition-all placeholder-neutral-700 text-neutral-200 pr-12 ' +
-                  (newMessage.length > 450 ? 'border-amber-500/50' : 'border-white/8 focus:border-amber-500/40')}
-              />
-              {newMessage.length > 0 && (
-                <span className={'absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black ' +
-                  (remaining < 50 ? 'text-rose-400' : 'text-neutral-700')}>
-                  {remaining}
-                </span>
-              )}
-            </div>
+        {/* ── Emoji picker ── */}
+        {showEmoji && (
+          <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#111] border border-white/8 flex flex-wrap gap-2">
+            {EMOJIS.map(e => (
+              <button
+                key={e}
+                onClick={() => insertEmoji(e)}
+                className="text-xl hover:scale-125 transition-transform active:scale-95"
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Pill-shaped input with embedded send button ── */}
+        <div className="border-t border-white/5 px-3 py-3">
+          <div className="flex items-center gap-2 bg-black/50 border border-white/8 rounded-full px-4 py-1.5 focus-within:border-amber-500/40 transition-all">
+            {/* Emoji toggle button */}
             <button
+              type="button"
+              onClick={() => setShowEmoji(p => !p)}
+              className={'text-lg transition-all hover:scale-110 active:scale-95 flex-shrink-0 ' +
+                (showEmoji ? 'opacity-100' : 'opacity-50 hover:opacity-100')}
+              title="Emoji"
+            >
+              😊
+            </button>
+
+            {/* Text input */}
+            <input
+              ref={inputRef}
+              type="text"
+              value={newMessage}
+              onChange={e => setNewMessage(e.target.value.slice(0, 500))}
+              onKeyDown={handleKeyDown}
+              placeholder="Message the community…"
+              disabled={sending}
+              className="flex-1 bg-transparent outline-none text-sm text-neutral-200 placeholder-neutral-700 py-1.5"
+            />
+
+            {/* Character countdown */}
+            {newMessage.length > 400 && (
+              <span className={'text-[9px] font-black flex-shrink-0 ' + (remaining < 50 ? 'text-rose-400' : 'text-neutral-600')}>
+                {remaining}
+              </span>
+            )}
+
+            {/* Send button inside pill */}
+            <button
+              type="button"
               onClick={handleSend}
               disabled={sending || !newMessage.trim()}
-              className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-black transition-all hover:bg-amber-400 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-[0_4px_16px_rgba(245,158,11,0.25)]">
-              {sending ? <Spin /> : <Send size={14} />}
+              className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-black transition-all hover:bg-amber-400 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-[0_4px_12px_rgba(245,158,11,0.3)]"
+            >
+              {sending ? <Spin /> : <Send size={13} />}
             </button>
           </div>
         </div>
+
       </Card>
     </div>
   );
