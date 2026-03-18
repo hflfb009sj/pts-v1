@@ -8,7 +8,7 @@ import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
   ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1820,10 +1820,230 @@ function AdminTab({ username }: { username: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROFILE TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function ProfileTab({ username }: { username: string }) {
+  const [txs, setTxs]           = useState<Transaction[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch(`/api/escrow/transactions?username=${encodeURIComponent(username)}`);
+        const data = await res.json();
+        if (data.success) setTxs(data.transactions ?? []);
+        else setError(data.error ?? 'Failed to load');
+      } catch { setError('Network error'); }
+      finally { setLoading(false); }
+    })();
+  }, [username]);
+
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const total     = txs.length;
+    const asBuyer   = txs.filter(t => t.buyerUsername === username).length;
+    const asSeller  = txs.filter(t => t.sellerUsername === username).length;
+    const completed = txs.filter(t => t.status === 'RELEASED').length;
+    const trustPct  = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const ratings   = txs.map(t => t.rating).filter((r): r is number => r != null);
+    const avgRating = ratings.length > 0
+      ? ratings.reduce((a, b) => a + b, 0) / ratings.length
+      : null;
+
+    // Member since: oldest transaction date, or today
+    const oldest = txs.length > 0
+      ? new Date(txs[txs.length - 1].createdAt)
+      : new Date();
+    const memberSince = oldest.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    // Badge
+    const badge =
+      total >= 20 ? { label: 'Elite Merchant', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20', emoji: '💎' }
+      : total >= 5  ? { label: 'Trusted Trader',  color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', emoji: '🤝' }
+      :              { label: 'New Pioneer',       color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',   emoji: '🚀' };
+
+    return { total, asBuyer, asSeller, completed, trustPct, avgRating, memberSince, badge, ratings };
+  }, [txs, username]);
+
+  // Trust score color
+  const trustColor =
+    stats.trustPct >= 80 ? 'text-emerald-400'
+    : stats.trustPct >= 50 ? 'text-amber-400'
+    : 'text-rose-400';
+  const trustBg =
+    stats.trustPct >= 80 ? 'bg-emerald-500'
+    : stats.trustPct >= 50 ? 'bg-amber-500'
+    : 'bg-rose-500';
+
+  const recent = txs.slice(0, 5);
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Avatar + identity card ── */}
+      <Card className="p-6">
+        <div className="flex flex-col items-center text-center gap-4">
+          {/* Large avatar */}
+          <div className="relative">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-black font-black text-3xl shadow-[0_8px_32px_rgba(245,158,11,0.35)]">
+              {username.charAt(0).toUpperCase()}
+            </div>
+            {/* Badge pip */}
+            <div className={'absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full border text-[9px] font-black ' + stats.badge.bg + ' ' + stats.badge.color}>
+              {stats.badge.emoji} {stats.badge.label}
+            </div>
+          </div>
+
+          {/* Name + member since */}
+          <div>
+            <p className="text-lg font-black text-white">@{username}</p>
+            <p className="text-[10px] text-neutral-600 mt-0.5">
+              <span className="text-amber-500/60 font-black">Member since</span> {stats.memberSince}
+            </p>
+          </div>
+
+          {/* Trust score bar */}
+          {loading ? (
+            <div className="w-full h-10 rounded-xl bg-white/4 animate-pulse" />
+          ) : (
+            <div className="w-full">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600">Trust Score</span>
+                <span className={'text-sm font-black ' + trustColor}>{stats.trustPct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/6 overflow-hidden">
+                <div
+                  className={'h-full rounded-full transition-all duration-700 ' + trustBg}
+                  style={{ width: `${stats.trustPct}%` }}
+                />
+              </div>
+              <p className="text-[9px] text-neutral-700 text-right mt-1 px-1">
+                {stats.completed} of {stats.total} deals completed
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* ── Stats grid ── */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { l: 'Total Deals',  v: stats.total,     c: 'text-white'       },
+          { l: 'Completed',    v: stats.completed,  c: 'text-emerald-400' },
+          { l: 'As Buyer',     v: stats.asBuyer,    c: 'text-amber-400'   },
+          { l: 'As Seller',    v: stats.asSeller,   c: 'text-sky-400'     },
+        ].map(s => (
+          <div key={s.l} className="bg-[#0d0d0d] border border-white/6 rounded-xl py-3.5 text-center">
+            <div className={'text-xl font-black ' + s.c}>
+              {loading ? <div className="h-6 w-8 mx-auto rounded-lg bg-white/6 animate-pulse" /> : s.v}
+            </div>
+            <div className="text-[8px] text-neutral-600 uppercase tracking-wider mt-1 leading-tight px-1">{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Average rating ── */}
+      {!loading && stats.avgRating !== null && (
+        <Card className="px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
+                <Star size={14} className="text-amber-400" fill="currentColor" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black text-white">Average Rating</p>
+                <p className="text-[9px] text-neutral-600">{stats.ratings.length} rating{stats.ratings.length !== 1 ? 's' : ''} received</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xl font-black text-amber-400">{stats.avgRating.toFixed(1)}</span>
+              <div className="flex gap-0.5">
+                {[1,2,3,4,5].map(n => (
+                  <Star key={n} size={12}
+                    className={n <= Math.round(stats.avgRating!) ? 'text-amber-400' : 'text-neutral-700'}
+                    fill={n <= Math.round(stats.avgRating!) ? 'currentColor' : 'none'}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Error state ── */}
+      {error && <ErrBox msg={error} />}
+
+      {/* ── Recent transactions ── */}
+      <Card className="overflow-hidden">
+        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/5">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
+            <ClipboardList size={14} className="text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[12px] font-black text-white">Recent Deals</p>
+            <p className="text-[10px] text-neutral-600">Last {Math.min(5, txs.length)} transactions</p>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+          </div>
+        )}
+
+        {!loading && recent.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-neutral-700">
+            <User size={28} className="opacity-20" />
+            <p className="text-sm font-black">No transactions yet</p>
+            <p className="text-[11px]">Start your first deal in the Buyer tab</p>
+          </div>
+        )}
+
+        {!loading && recent.length > 0 && (
+          <div className="divide-y divide-white/4">
+            {recent.map((tx, i) => {
+              const isBuyer = tx.buyerUsername === username;
+              return (
+                <div key={tx._id ?? i} className="px-5 py-3.5 flex items-center gap-3">
+                  {/* Role pill */}
+                  <span className={'text-[8px] font-black px-2 py-1 rounded-lg border flex-shrink-0 ' +
+                    (isBuyer
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      : 'bg-sky-500/10 border-sky-500/20 text-sky-400')}>
+                    {isBuyer ? 'Buyer' : 'Seller'}
+                  </span>
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-black text-white font-mono truncate">
+                      {tx.transactionNumber || tx.escrowCode}
+                    </p>
+                    <p className="text-[9px] text-neutral-600 truncate">
+                      {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </div>
+                  {/* Amount + status */}
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-[11px] font-black text-white">{tx.amount} <span className="text-amber-400">π</span></p>
+                    <StatusBadge status={tx.status} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN APP (authenticated)
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'chat' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
+  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'chat' | 'profile' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
   // For deep-linking from transactions tab
   const navigate = useCallback((dest: string, code?: string) => {
@@ -1857,17 +2077,17 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
           </div>
         </div>
 
-        {/* Tab bar */}
-        <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-6' : 'grid-cols-5')}>
+        {/* Tab bar — 2 rows: top 3 + bottom 3 (or 4) */}
+        <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-3' : 'grid-cols-3')}>
           {([
-           { key: 'buyer',        label: 'Buyer',  Icon: Lock          },
-            { key: 'seller',       label: 'Seller', Icon: Package       },
-            { key: 'transactions', label: 'Deals',  Icon: ClipboardList },
-            { key: 'stats',        label: 'Stats',  Icon: BarChart3     },
-            { key: 'chat',         label: 'Chat',   Icon: MessageCircle },
+            { key: 'buyer',        label: 'Buyer',   Icon: Lock          },
+            { key: 'seller',       label: 'Seller',  Icon: Package       },
+            { key: 'transactions', label: 'Deals',   Icon: ClipboardList },
+            { key: 'stats',        label: 'Stats',   Icon: BarChart3     },
+            { key: 'chat',         label: 'Chat',    Icon: MessageCircle },
+            { key: 'profile',      label: 'Profile', Icon: User          },
             ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
           ] as const).map(({ key, label, Icon }) => (
-
             <button key={key} onClick={() => setTab(key)}
               className={
                 'flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-[9px] font-black tracking-wide transition-all duration-200 ' +
@@ -1886,6 +2106,7 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
         {tab === 'stats'        && <StatsTab         user={user} />}
         {tab === 'chat'         && <ChatTab          username={username} />}
+        {tab === 'profile'      && <ProfileTab       username={username} />}
         {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
       </div>
     </main>
