@@ -8,7 +8,7 @@ import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
   ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1393,6 +1393,169 @@ function StatsTab({ user }: { user: PiUser }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHAT TAB — Community messages for all users
+// ─────────────────────────────────────────────────────────────────────────────
+interface ChatMessage {
+  _id?: string;
+  username: string;
+  text: string;
+  createdAt: string;
+}
+
+function ChatTab({ username }: { username: string }) {
+  const [messages, setMessages]   = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [chatLoading, setChatLoading] = useState(true);
+  const [sending, setSending]     = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await fetch('/api/messages');
+      const data = await res.json();
+      if (data.success) setMessages(data.messages ?? []);
+    } catch { /* ignore */ }
+    finally { setChatLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    loadMessages();
+    const interval = setInterval(loadMessages, 30_000);
+    return () => clearInterval(interval);
+  }, [loadMessages]);
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSend = async () => {
+    const text = newMessage.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      const res  = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, text }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewMessage('');
+        await loadMessages();
+      }
+    } catch { /* ignore */ }
+    finally { setSending(false); }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  const remaining = 500 - newMessage.length;
+
+  return (
+    <div className="space-y-3">
+      <Card className="overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/5">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
+            <MessageCircle size={16} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-black text-white">Community Chat</h2>
+            <p className="text-[10px] text-neutral-500">PTrust Oracle Community</p>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="h-[380px] overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+          {chatLoading && (
+            <div className="flex items-center justify-center h-full">
+              <Spin />
+            </div>
+          )}
+
+          {!chatLoading && messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-neutral-700 gap-3">
+              <MessageCircle size={32} className="opacity-20" />
+              <p className="text-sm font-black">No messages yet.</p>
+              <p className="text-[11px]">Be the first to say hello!</p>
+            </div>
+          )}
+
+          {!chatLoading && messages.map((msg, i) => {
+            const isMe = msg.username === username;
+            return (
+              <div key={msg._id ?? i} className={'flex gap-2.5 ' + (isMe ? 'flex-row-reverse' : '')}>
+                {/* Avatar */}
+                <div className={'w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center text-[11px] font-black ' +
+                  (isMe ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400' : 'bg-white/6 border border-white/8 text-neutral-400')}>
+                  {msg.username.charAt(0).toUpperCase()}
+                </div>
+                {/* Bubble */}
+                <div className={'max-w-[75%] ' + (isMe ? 'items-end' : 'items-start') + ' flex flex-col gap-0.5'}>
+                  <div className={'flex items-center gap-1.5 ' + (isMe ? 'flex-row-reverse' : '')}>
+                    <span className={'text-[9px] font-black ' + (isMe ? 'text-amber-400' : 'text-sky-400')}>
+                      @{msg.username}
+                    </span>
+                    {isMe && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-500">
+                        You
+                      </span>
+                    )}
+                    <span className="text-[8px] text-neutral-700">
+                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className={'text-[12px] leading-relaxed px-3 py-2 rounded-2xl ' +
+                    (isMe
+                      ? 'bg-amber-500/10 border border-amber-500/20 text-neutral-200 rounded-tr-sm'
+                      : 'bg-white/5 border border-white/8 text-neutral-300 rounded-tl-sm')}>
+                    {msg.text}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input */}
+        <div className="border-t border-white/5 p-3">
+          <div className="flex gap-2 items-center">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={e => setNewMessage(e.target.value.slice(0, 500))}
+                onKeyDown={handleKeyDown}
+                placeholder="Write a message…"
+                disabled={sending}
+                className={'w-full bg-black/60 border rounded-xl py-2.5 px-3.5 text-sm outline-none transition-all placeholder-neutral-700 text-neutral-200 pr-12 ' +
+                  (newMessage.length > 450 ? 'border-amber-500/50' : 'border-white/8 focus:border-amber-500/40')}
+              />
+              {newMessage.length > 0 && (
+                <span className={'absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black ' +
+                  (remaining < 50 ? 'text-rose-400' : 'text-neutral-700')}>
+                  {remaining}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={handleSend}
+              disabled={sending || !newMessage.trim()}
+              className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-black transition-all hover:bg-amber-400 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-[0_4px_16px_rgba(245,158,11,0.25)]">
+              {sending ? <Spin /> : <Send size={14} />}
+            </button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ADMIN TAB — Only for GhaithriAHI96
 // ─────────────────────────────────────────────────────────────────────────────
 function AdminTab({ username }: { username: string }) {
@@ -1561,7 +1724,7 @@ function AdminTab({ username }: { username: string }) {
 // MAIN APP (authenticated)
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
+  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'chat' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
   // For deep-linking from transactions tab
   const navigate = useCallback((dest: string, code?: string) => {
@@ -1596,12 +1759,13 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         </div>
 
         {/* Tab bar */}
-        <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-5' : 'grid-cols-4')}>
+        <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-6' : 'grid-cols-5')}>
           {([
            { key: 'buyer',        label: 'Buyer',  Icon: Lock          },
             { key: 'seller',       label: 'Seller', Icon: Package       },
             { key: 'transactions', label: 'Deals',  Icon: ClipboardList },
             { key: 'stats',        label: 'Stats',  Icon: BarChart3     },
+            { key: 'chat',         label: 'Chat',   Icon: MessageCircle },
             ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
           ] as const).map(({ key, label, Icon }) => (
 
@@ -1622,6 +1786,7 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         {tab === 'seller'       && <SellerTab        user={user} />}
         {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
         {tab === 'stats'        && <StatsTab         user={user} />}
+        {tab === 'chat'         && <ChatTab          username={username} />}
         {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
       </div>
     </main>
