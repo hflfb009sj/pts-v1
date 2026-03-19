@@ -1905,6 +1905,40 @@ function AdminTab({ username }: { username: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE TAB
 // ─────────────────────────────────────────────────────────────────────────────
+
+function calculateTrustScore(transactions: Transaction[]): { score: number; level: string; color: string; details: string[]; disputed: number } {
+  let score = 50; // base score
+  const details = [];
+  
+  const completed = transactions.filter(t => t.status === 'RELEASED').length;
+  const disputed = transactions.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
+  const refunded = transactions.filter(t => t.status === 'REFUNDED').length;
+  const total = transactions.length;
+  const ratings = transactions.filter(t => t.rating).map(t => t.rating as number);
+  const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+  
+  // Positive factors
+  if (completed >= 1) { score += 10; details.push('+10 First completed deal'); }
+  if (completed >= 5) { score += 10; details.push('+10 Trusted trader (5+ deals)'); }
+  if (completed >= 20) { score += 10; details.push('+10 Elite merchant (20+ deals)'); }
+  if (avgRating >= 4.5) { score += 10; details.push('+10 Excellent ratings'); }
+  if (avgRating >= 3) { score += 5; details.push('+5 Good ratings'); }
+  
+  // Negative factors
+  if (disputed > 0) { score -= disputed * 10; details.push('-' + (disputed * 10) + ' Active disputes'); }
+  if (refunded > 0) { score -= refunded * 5; details.push('-' + (refunded * 5) + ' Refunded deals'); }
+  
+  score = Math.max(0, Math.min(100, score));
+  
+  let level = '';
+  let color = '';
+  if (score >= 71) { level = 'High Trust'; color = 'text-emerald-400'; }
+  else if (score >= 41) { level = 'Medium Trust'; color = 'text-amber-400'; }
+  else { level = 'Low Trust'; color = 'text-rose-400'; }
+  
+  return { score, level, color, details, disputed };
+}
+
 function ProfileTab({ username }: { username: string }) {
   const [txs, setTxs]           = useState<Transaction[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -1928,7 +1962,7 @@ function ProfileTab({ username }: { username: string }) {
     const asBuyer   = txs.filter(t => t.buyerUsername === username).length;
     const asSeller  = txs.filter(t => t.sellerUsername === username).length;
     const completed = txs.filter(t => t.status === 'RELEASED').length;
-    const trustPct  = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const trustData = calculateTrustScore(txs);
 
     const ratings   = txs.map(t => t.rating).filter((r): r is number => r != null);
     const avgRating = ratings.length > 0
@@ -1947,23 +1981,28 @@ function ProfileTab({ username }: { username: string }) {
       : total >= 5  ? { label: 'Trusted Trader',  color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', emoji: '🤝' }
       :              { label: 'New Pioneer',       color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',   emoji: '🚀' };
 
-    return { total, asBuyer, asSeller, completed, trustPct, avgRating, memberSince, badge, ratings };
+    return { total, asBuyer, asSeller, completed, trustData, avgRating, memberSince, badge, ratings };
   }, [txs, username]);
 
-  // Trust score color
-  const trustColor =
-    stats.trustPct >= 80 ? 'text-emerald-400'
-    : stats.trustPct >= 50 ? 'text-amber-400'
-    : 'text-rose-400';
-  const trustBg =
-    stats.trustPct >= 80 ? 'bg-emerald-500'
-    : stats.trustPct >= 50 ? 'bg-amber-500'
-    : 'bg-rose-500';
-
   const recent = txs.slice(0, 5);
+  const [showTrustDetails, setShowTrustDetails] = useState(false);
 
   return (
     <div className="space-y-4">
+
+      {/* ── Fraud Warnings ── */}
+      {!loading && stats.trustData.score < 30 && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+          <AlertTriangle size={16} className="flex-shrink-0" />
+          <p className="text-sm font-black">⚠️ Low trust user - proceed with caution</p>
+        </div>
+      )}
+      {!loading && stats.trustData.disputed > 2 && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400">
+          <AlertCircle size={16} className="flex-shrink-0" />
+          <p className="text-sm font-black">Multiple disputes detected</p>
+        </div>
+      )}
 
       {/* ── Avatar + identity card ── */}
       <Card className="p-6">
@@ -1987,23 +2026,64 @@ function ProfileTab({ username }: { username: string }) {
             </p>
           </div>
 
-          {/* Trust score bar */}
+          {/* Smart Trust Score Component */}
           {loading ? (
-            <div className="w-full h-10 rounded-xl bg-white/4 animate-pulse" />
+            <div className="w-full h-32 rounded-xl bg-white/4 animate-pulse mt-4" />
           ) : (
-            <div className="w-full">
-              <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600">Trust Score</span>
-                <span className={'text-sm font-black ' + trustColor}>{stats.trustPct}%</span>
+            <div className="w-full mt-4 bg-[#0d0d0d] rounded-2xl p-4 border border-white/4">
+              <div className="relative w-28 h-28 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8" className="text-white/5" />
+                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8"
+                    className={stats.trustData.score >= 71 ? 'text-emerald-500' : stats.trustData.score >= 41 ? 'text-amber-500' : 'text-rose-500'}
+                    strokeDasharray={2 * Math.PI * 46}
+                    strokeDashoffset={(2 * Math.PI * 46) * (1 - stats.trustData.score / 100)}
+                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 1s ease-in-out' }} />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className={`text-3xl font-black ${stats.trustData.color}`}>{stats.trustData.score}</span>
+                </div>
               </div>
-              <div className="h-2 rounded-full bg-white/6 overflow-hidden">
-                <div
-                  className={'h-full rounded-full transition-all duration-700 ' + trustBg}
-                  style={{ width: `${stats.trustPct}%` }}
-                />
+
+              <div className="text-center mb-4">
+                <div className={`text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 bg-white/5 rounded-full inline-block border border-white/10 ${stats.trustData.color}`}>
+                  {stats.trustData.level}
+                </div>
               </div>
-              <p className="text-[9px] text-neutral-700 text-right mt-1 px-1">
-                {stats.completed} of {stats.total} deals completed
+
+              {/* Expandable Details */}
+              <div className="border-t border-white/5 pt-3 mt-3">
+                <button 
+                  onClick={() => setShowTrustDetails(!showTrustDetails)}
+                  className="w-full flex items-center justify-between text-[11px] font-black text-neutral-400 hover:text-white transition-colors"
+                >
+                  How is this computed?
+                  <ChevronDown size={14} className={`transition-transform duration-200 ${showTrustDetails ? 'rotate-180' : ''}`} />
+                </button>
+                {showTrustDetails && (
+                  <div className="mt-3 space-y-1.5 px-2">
+                    <div className="text-[10px] text-neutral-500 mb-2 border-b border-white/5 pb-2 text-left">
+                      Base Score: <span className="text-white">50</span>
+                    </div>
+                    {stats.trustData.details.map((detail, i) => {
+                      const isPos = detail.startsWith('+');
+                      return (
+                        <div key={i} className="flex items-start gap-1.5 text-left">
+                          <span className={`text-[10px] font-black flex-shrink-0 ${isPos ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {isPos ? '+' : '-'}
+                          </span>
+                          <span className="text-[10px] text-neutral-300 leading-relaxed">
+                            {detail.substring(1)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[9px] text-neutral-600 text-center mt-4">
+                Score updates automatically with each transaction
               </p>
             </div>
           )}
