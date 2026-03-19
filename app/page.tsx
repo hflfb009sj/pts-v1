@@ -664,6 +664,8 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
 // ─────────────────────────────────────────────────────────────────────────────
 function BuyerTab({ user }: { user: PiUser }) {
   // Create escrow state
+  const [showKycModal, setShowKycModal] = useState(false);
+  const [kycConfirmed, setKycConfirmed] = useState(false);
   const [sellerWallet, setSellerWallet] = useState('');
   const [sellerTrustScore, setSellerTrustScore] = useState<number | null>(null);
   const [amount, setAmount]             = useState('');
@@ -725,6 +727,10 @@ function BuyerTab({ user }: { user: PiUser }) {
   // Create escrow via Pi.createPayment
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (parseFloat(amount) >= 100 && !kycConfirmed) {
+      setShowKycModal(true);
+      return;
+    }
     setCreating(true); setCreateErr(null); setResult(null);
     try {
       const win = window as any;
@@ -1034,6 +1040,28 @@ function BuyerTab({ user }: { user: PiUser }) {
           </PrimaryBtn>
         </form>
       </Card>
+
+      {showKycModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#0d0d0d] border border-amber-500/30 rounded-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-center gap-3">
+              <Shield size={20} className="text-amber-400" />
+              <h3 className="text-sm font-black text-amber-400">Large Transaction Warning</h3>
+            </div>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Transactions over 100 Pi require both parties to have completed KYC verification on Pi Network.
+            </p>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" checked={kycConfirmed} onChange={e => setKycConfirmed(e.target.checked)} className="mt-0.5 accent-amber-500" />
+              <span className="text-[11px] text-neutral-300">I confirm both me and the seller have completed KYC on Pi Network</span>
+            </label>
+            <div className="flex gap-2">
+              <button onClick={() => setShowKycModal(false)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-neutral-400 text-[11px] font-black">Cancel</button>
+              <button disabled={!kycConfirmed} onClick={() => { setShowKycModal(false); handleCreate({ preventDefault: () => {} } as any); }} className="flex-1 py-3 rounded-xl bg-amber-500 text-black text-[11px] font-black disabled:opacity-30">Proceed</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1045,7 +1073,6 @@ function SellerTab({ user }: { user: PiUser }) {
   const [code, setCode]       = useState('');
   const [key, setKey]         = useState('');
   const [tx, setTx]           = useState<Transaction | null>(null);
-  const [buyerTrust, setBuyerTrust] = useState<{ level: string; color: string } | null>(null);
   const [err, setErr]         = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rated, setRated]     = useState(false);
@@ -1053,25 +1080,12 @@ function SellerTab({ user }: { user: PiUser }) {
   const lookup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code) return;
-    setLoading(true); setErr(null); setTx(null); setBuyerTrust(null);
+    setLoading(true); setErr(null); setTx(null);
     try {
       const res = await fetch('/api/escrow/transaction/' + code.toUpperCase());
       const d   = await res.json();
       if (!d.success) throw new Error(d.error);
-      const currTx = d.transaction;
-      setTx(currTx);
-
-      // Lookup buyer trust score
-      if (currTx.buyerUsername) {
-        try {
-          const trustRes = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(currTx.buyerUsername));
-          const trustData = await trustRes.json();
-          if (trustData.success && trustData.transactions) {
-            const trustObj = calculateTrustScore(trustData.transactions);
-            setBuyerTrust(trustObj);
-          }
-        } catch { /* ignore */ }
-      }
+      setTx(d.transaction);
     } catch (err: any) { setErr(err.message); }
     finally { setLoading(false); }
   };
@@ -1135,16 +1149,7 @@ function SellerTab({ user }: { user: PiUser }) {
                 { l: 'TX Number',   v: <span className="font-black text-amber-400 font-mono text-xs">{tx.transactionNumber}</span> },
                 { l: 'Escrow Code', v: <span className="font-black text-amber-400 font-mono">{tx.escrowCode}</span>              },
                 { l: 'Amount',      v: <span className="font-black text-lg">{tx.amount} <span className="text-amber-400 text-sm">Pi</span></span> },
-                { l: 'Buyer',       v: (
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-black text-sm">@{tx.buyerUsername}</span>
-                    {buyerTrust && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 flex items-center gap-1">
-                        {buyerTrust.level === 'High Trust' ? '🟢 High' : buyerTrust.level === 'Medium Trust' ? '🟡 Medium' : '🔴 Low'}
-                      </span>
-                    )}
-                  </div>
-                )},
+                { l: 'Buyer',       v: <span className="font-black text-sm">@{tx.buyerUsername}</span>                            },
                 { l: 'Status',      v: <StatusBadge status={tx.status} />                                                         },
               ].map(({ l, v }) => (
                 <div key={l} className="flex items-center justify-between">
