@@ -1737,16 +1737,17 @@ function AdminTab({ username }: { username: string }) {
       ...transactions.map(t => t.buyerUsername),
       ...transactions.map(t => t.sellerUsername).filter(Boolean) as string[],
     ]).size;
-    const avgSize = released.length > 0 ? totalPi / released.length : 0;
     const successRate = transactions.length > 0 ? (released.length / transactions.length) * 100 : 0;
+    const avgDealSize = transactions.length > 0 ? transactions.reduce((s, t) => s + (t.amount || 0), 0) / transactions.length : 0;
+    const activeDisputes = transactions.filter(t => t.status === 'FROZEN' || t.status === 'UNDER_REVIEW').length;
 
     return [
-      { label: 'Total Volume',  value: totalPi.toLocaleString() + ' π', icon: Zap          },
-      { label: 'Transactions',  value: transactions.length,             icon: ClipboardList },
-      { label: 'Active Users',  value: uniqueUsers,                     icon: Users         },
-      { label: 'Total Revenue', value: totalFee.toFixed(2) + ' π',      icon: Wallet        },
-      { label: 'Avg Deal Size', value: avgSize.toFixed(1) + ' π',     icon: Activity      },
-      { label: 'Success Rate',  value: Math.round(successRate) + '%',   icon: TrendingUp    },
+      { label: 'Total Pi Transacted', value: totalPi.toLocaleString() + ' π', color: 'text-amber-400', icon: Zap },
+      { label: 'Platform Revenue',    value: totalFee.toFixed(2) + ' π',      color: 'text-emerald-400', icon: Wallet },
+      { label: 'Total Users',         value: uniqueUsers,                     color: 'text-sky-400', icon: Users },
+      { label: 'Success Rate',        value: Math.round(successRate) + '%',   color: 'text-violet-400', icon: TrendingUp },
+      { label: 'Avg Deal Size',       value: avgDealSize.toFixed(1) + ' π',   color: 'text-orange-400', icon: Activity },
+      { label: 'Active Disputes',     value: activeDisputes,                  color: 'text-rose-400', icon: AlertTriangle },
     ];
   }, [transactions]);
 
@@ -1769,33 +1770,20 @@ function AdminTab({ username }: { username: string }) {
         </button>
       </div>
 
-      {/* Platform Statistics Section */}
-      <div className="space-y-4 pt-2">
-        <div className="flex items-center gap-3 px-1">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
-            <BarChart3 size={18} className="text-amber-400" />
-          </div>
-          <div>
-            <h2 className="text-sm font-black text-white uppercase tracking-widest leading-none">Platform Overview</h2>
-            <p className="text-[10px] text-neutral-600 mt-1">Global performance metrics</p>
-          </div>
+      {/* Platform Overview Section */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/20 to-violet-950/20 border border-amber-500/15 space-y-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={16} className="text-amber-400" />
+          <h3 className="text-sm font-black text-amber-400 uppercase tracking-widest">Platform Overview</h3>
         </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          {platformStats.map((s, i) => (
-            <div key={i} className="group relative p-px rounded-2xl bg-gradient-to-br from-amber-500/30 via-amber-500/10 to-violet-500/30 hover:from-amber-500/50 hover:to-violet-500/50 transition-all duration-300">
-              <div className="bg-[#0b0b0b] rounded-2xl p-4 flex flex-col items-center text-center h-full relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/[0.03] rounded-full -mr-8 -mt-8 blur-xl pointer-events-none" />
-                <div className="w-9 h-9 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
-                  <s.icon size={15} className="text-amber-400/80" />
-                </div>
-                <div className="text-[22px] font-black text-amber-500 tracking-tight leading-none mb-1.5 drop-shadow-sm">
-                  {s.value}
-                </div>
-                <div className="text-[9px] font-black text-neutral-600 uppercase tracking-[0.2em]">
-                  {s.label}
-                </div>
+        <div className="grid grid-cols-3 gap-2">
+          {platformStats.map((stat, i) => (
+            <div key={i} className="bg-black/40 border border-white/6 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <div className="text-[8px] uppercase text-neutral-500 tracking-wider mb-0.5">{stat.label}</div>
+                <div className={`text-sm font-black ${stat.color}`}>{stat.value}</div>
               </div>
+              <stat.icon size={16} className={`${stat.color} opacity-80`} />
             </div>
           ))}
         </div>
