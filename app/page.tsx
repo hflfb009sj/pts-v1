@@ -1878,7 +1878,84 @@ function AdminTab({ username }: { username: string }) {
     return suspicious;
   }, [transactions]);
 
-  const filtered = filter === 'ALL' ? transactions : transactions.filter(t => t.status === filter);
+  const dailyData = useMemo(() => {
+    const days: { label: string; start: number; end: number; count: number }[] = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      days.push({
+         label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+         start: new Date(d.setHours(0,0,0,0)).getTime(),
+         end: new Date(d.setHours(23,59,59,999)).getTime(),
+         count: 0
+      });
+    }
+    transactions.forEach(tx => {
+      const t = new Date(tx.createdAt).getTime();
+      const day = days.find(d => t >= d.start && t <= d.end);
+      if (day) day.count++;
+    });
+    const maxCount = Math.max(...days.map(d => d.count), 1);
+    return { days, maxCount };
+  }, [transactions]);
+
+  const statusDistribution = useMemo(() => {
+    const counts = { RELEASED: 0, PENDING: 0, REFUNDED: 0, FROZEN: 0, OTHER: 0 };
+    transactions.forEach(tx => {
+      if (tx.status in counts) counts[tx.status as keyof typeof counts]++;
+      else counts.OTHER++;
+    });
+    const t = transactions.length || 1;
+    return [
+      { l: 'RELEASED', v: counts.RELEASED, p: (counts.RELEASED/t)*100, c: 'bg-emerald-500', tc: 'text-emerald-400' },
+      { l: 'PENDING',  v: counts.PENDING,  p: (counts.PENDING/t)*100,  c: 'bg-amber-500',   tc: 'text-amber-400' },
+      { l: 'REFUNDED', v: counts.REFUNDED, p: (counts.REFUNDED/t)*100, c: 'bg-sky-500',     tc: 'text-sky-400' },
+      { l: 'FROZEN',   v: counts.FROZEN,   p: (counts.FROZEN/t)*100,   c: 'bg-blue-500',    tc: 'text-blue-400' },
+    ];
+  }, [transactions]);
+
+  const topUsersMap = useMemo(() => {
+    const um = new Map<string, { count: number; pi: number; txs: Transaction[] }>();
+    transactions.forEach(tx => {
+      [tx.buyerUsername, tx.sellerUsername].filter(Boolean).forEach(u => {
+        if (!um.has(u!)) um.set(u!, { count: 0, pi: 0, txs: [] });
+        um.get(u!)!.count++;
+        um.get(u!)!.pi += tx.amount || 0;
+        um.get(u!)!.txs.push(tx);
+      });
+    });
+    return Array.from(um.entries())
+      .sort((a,b) => b[1].count - a[1].count)
+      .slice(0, 5)
+      .map(([uname, d]) => ({ uname, deals: d.count, pi: d.pi, trust: calculateTrustScore(d.txs) }));
+  }, [transactions]);
+
+  const newUsersTodayCount = useMemo(() => {
+    const firstTx = new Map<string, number>();
+    transactions.forEach(tx => {
+      const t = new Date(tx.createdAt).getTime();
+      [tx.buyerUsername, tx.sellerUsername].filter(Boolean).forEach(u => {
+        if (!firstTx.has(u!) || t < firstTx.get(u!)!) firstTx.set(u!, t);
+      });
+    });
+    const startOfToday = new Date().setHours(0,0,0,0);
+    let count = 0;
+    firstTx.forEach(time => { if (time >= startOfToday) count++; });
+    return count;
+  }, [transactions]);
+
+  const exportReport = () => {
+    const txt = `PTrust Daily Report\nGenerated: ${new Date().toISOString()}\nTotal Trans: ${transactions.length}\nNew Users Today: ${newUsersTodayCount}`;
+    const blob = new Blob([txt], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'ptrust_report.txt';
+    a.click();
+  };
+
+  const filtered = filter === 'ALL' ? transactions 
+    : filter === 'ALL_DISPUTES' ? transactions.filter(t => t.status === 'FROZEN' || t.status === 'UNDER_REVIEW')
+    : transactions.filter(t => t.status === filter);
 
   return (
     <div className="space-y-4">
@@ -1914,6 +1991,115 @@ function AdminTab({ username }: { username: string }) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Analytics Section */}
+      <div className="p-6 rounded-2xl bg-[#0d0d0d] border border-amber-500/20 space-y-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={16} className="text-amber-400" />
+            <h3 className="text-sm font-black text-amber-400 uppercase tracking-widest">Analytics</h3>
+          </div>
+        </div>
+
+        {/* Top Users & Quick Actions Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          {/* Daily Activity Chart */}
+          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-4">Last 7 Days Activity</h3>
+            <div className="flex items-end justify-between h-24 gap-1">
+              {dailyData.days.map((d, i) => (
+                <div key={i} className="flex flex-col items-center flex-1 gap-2">
+                  <div className="w-full bg-amber-500/20 rounded-sm relative overflow-hidden" style={{ height: '60px' }}>
+                    <div 
+                      className="absolute bottom-0 left-0 right-0 bg-amber-500 transition-all duration-500" 
+                      style={{ height: `${(d.count / dailyData.maxCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-[8px] text-neutral-600 font-bold">{d.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Actions & Status */}
+          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)] space-y-3 flex flex-col justify-between h-full">
+            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-2">Quick Actions &amp; Insights</h3>
+            
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button onClick={exportReport} className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 text-[10px] font-black transition-all flex items-center justify-center gap-1.5">
+                <FileText size={12} /> Export Report
+              </button>
+              <button onClick={() => setFilter('ALL_DISPUTES')} className="py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[10px] font-black transition-all flex items-center justify-center gap-1.5">
+                <AlertTriangle size={12} /> View All Disputes
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                <Users size={14} className="text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs font-black text-amber-400">{newUsersTodayCount} New Users Today</p>
+                <p className="text-[9px] text-amber-500/60">First-time deals initiated</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Users & Distribution */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Top Users */}
+          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-3">Top 5 Most Active Users</h3>
+            <div className="space-y-2">
+              {topUsersMap.map((u, i) => (
+                <div key={u.uname} className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="text-[10px] font-black text-amber-500 w-3">{i+1}.</div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-black text-white">@{u.uname}</p>
+                        <span className={`text-[8px] px-1.5 py-0.5 rounded-full bg-black/40 border border-white/10 flex items-center gap-1`}>
+                          {u.trust.level === 'High Trust' ? '🟢' : u.trust.level === 'Medium Trust' ? '🟡' : '🔴'}
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-neutral-400 mt-0.5">{u.deals} deals completed</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-black text-amber-400">{u.pi.toLocaleString()} π</p>
+                    <p className="text-[9px] text-neutral-500">volume</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Transaction Status Distribution */}
+          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-3">Status Distribution</h3>
+            <div className="h-4 rounded-full bg-white/5 flex overflow-hidden mb-4 mt-2">
+              {statusDistribution.map(s => s.v > 0 && (
+                <div key={s.l} className={`h-full ${s.c} transition-all duration-500`} style={{ width: `${s.p}%` }} title={`${s.l}: ${s.v}`} />
+              ))}
+            </div>
+            <div className="flex justify-between items-center flex-col gap-2 pt-1 border-t border-white/5 mt-2">
+              {statusDistribution.map(s => s.v > 0 && (
+                <div key={s.l} className="flex items-center justify-between w-full py-0.5">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${s.c}`} />
+                    <span className="text-[10px] font-black text-neutral-400">{s.l}</span>
+                  </div>
+                  <div className="flex items-center gap-2 border-b border-white/5 border-dashed flex-1 mx-2" />
+                  <span className={`text-[11px] font-black ${s.tc}`}>{s.p.toFixed(1)}% <span className="text-neutral-500 font-normal">({s.v})</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
       </div>
 
       {/* Fraud Detection Section */}
@@ -1979,7 +2165,7 @@ function AdminTab({ username }: { username: string }) {
 
       {/* Filter */}
       <div className="flex gap-1.5 flex-wrap">
-        {['ALL', 'PENDING', 'DELIVERED', 'FROZEN', 'RELEASED', 'REFUNDED', 'PENDING_ADMIN'].map(f => (
+        {['ALL', 'PENDING', 'DELIVERED', 'FROZEN', 'RELEASED', 'REFUNDED', 'PENDING_ADMIN', 'ALL_DISPUTES'].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={'px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ' +
               (filter === f
