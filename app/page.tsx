@@ -60,6 +60,42 @@ async function apiFetch(url: string, body?: object) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TRUST SCORE HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+function calculateTrustScore(transactions: Transaction[]): { score: number; level: string; color: string; details: string[]; disputed: number } {
+  let score = 50; // base score
+  const details = [];
+  
+  const completed = transactions.filter(t => t.status === 'RELEASED').length;
+  const disputed = transactions.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
+  const refunded = transactions.filter(t => t.status === 'REFUNDED').length;
+  const total = transactions.length;
+  const ratings = transactions.filter(t => t.rating).map(t => t.rating as number);
+  const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+  
+  // Positive factors
+  if (completed >= 1) { score += 10; details.push('+10 First completed deal'); }
+  if (completed >= 5) { score += 10; details.push('+10 Trusted trader (5+ deals)'); }
+  if (completed >= 20) { score += 10; details.push('+10 Elite merchant (20+ deals)'); }
+  if (avgRating >= 4.5) { score += 10; details.push('+10 Excellent ratings'); }
+  if (avgRating >= 3) { score += 5; details.push('+5 Good ratings'); }
+  
+  // Negative factors
+  if (disputed > 0) { score -= disputed * 10; details.push('-' + (disputed * 10) + ' Active disputes'); }
+  if (refunded > 0) { score -= refunded * 5; details.push('-' + (refunded * 5) + ' Refunded deals'); }
+  
+  score = Math.max(0, Math.min(100, score));
+  
+  let level = '';
+  let color = '';
+  if (score >= 71) { level = 'High Trust'; color = 'text-emerald-400'; }
+  else if (score >= 41) { level = 'Medium Trust'; color = 'text-amber-400'; }
+  else { level = 'Low Trust'; color = 'text-rose-400'; }
+  
+  return { score, level, color, details, disputed };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SESSION TIMER HOOK — 30-minute inactivity logout
 // ─────────────────────────────────────────────────────────────────────────────
 function useSessionTimer(onExpire: () => void, active: boolean) {
@@ -629,8 +665,30 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
 function BuyerTab({ user }: { user: PiUser }) {
   // Create escrow state
   const [sellerWallet, setSellerWallet] = useState('');
+  const [sellerTrustScore, setSellerTrustScore] = useState<number | null>(null);
   const [amount, setAmount]             = useState('');
   const [desc, setDesc]                 = useState('');
+
+  useEffect(() => {
+    if (!sellerWallet || sellerWallet.length < 10) {
+      setSellerTrustScore(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(sellerWallet));
+        const data = await res.json();
+        if (data.success && data.transactions.length > 0) {
+          setSellerTrustScore(calculateTrustScore(data.transactions).score);
+        } else {
+          setSellerTrustScore(null);
+        }
+      } catch {
+        setSellerTrustScore(null);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [sellerWallet]);
   const [creating, setCreating]         = useState(false);
   const [createErr, setCreateErr]       = useState<string | null>(null);
   const [result, setResult]             = useState<EscrowResult | null>(null);
@@ -780,6 +838,13 @@ function BuyerTab({ user }: { user: PiUser }) {
                 onChange={e => setSellerWallet(e.target.value)}
                 className={inputBase} />
             </Field>
+
+            {sellerTrustScore !== null && sellerTrustScore < 30 && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 mt-2">
+                <AlertTriangle size={16} className="flex-shrink-0" />
+                <p className="text-[11px] font-black">⚠️ Warning: This seller has a low trust score. Proceed with caution.</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Amount (Pi)">
@@ -980,6 +1045,7 @@ function SellerTab({ user }: { user: PiUser }) {
   const [code, setCode]       = useState('');
   const [key, setKey]         = useState('');
   const [tx, setTx]           = useState<Transaction | null>(null);
+  const [buyerTrust, setBuyerTrust] = useState<{ level: string; color: string } | null>(null);
   const [err, setErr]         = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rated, setRated]     = useState(false);
@@ -987,12 +1053,25 @@ function SellerTab({ user }: { user: PiUser }) {
   const lookup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code) return;
-    setLoading(true); setErr(null); setTx(null);
+    setLoading(true); setErr(null); setTx(null); setBuyerTrust(null);
     try {
       const res = await fetch('/api/escrow/transaction/' + code.toUpperCase());
       const d   = await res.json();
       if (!d.success) throw new Error(d.error);
-      setTx(d.transaction);
+      const currTx = d.transaction;
+      setTx(currTx);
+
+      // Lookup buyer trust score
+      if (currTx.buyerUsername) {
+        try {
+          const trustRes = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(currTx.buyerUsername));
+          const trustData = await trustRes.json();
+          if (trustData.success && trustData.transactions) {
+            const trustObj = calculateTrustScore(trustData.transactions);
+            setBuyerTrust(trustObj);
+          }
+        } catch { /* ignore */ }
+      }
     } catch (err: any) { setErr(err.message); }
     finally { setLoading(false); }
   };
@@ -1056,7 +1135,16 @@ function SellerTab({ user }: { user: PiUser }) {
                 { l: 'TX Number',   v: <span className="font-black text-amber-400 font-mono text-xs">{tx.transactionNumber}</span> },
                 { l: 'Escrow Code', v: <span className="font-black text-amber-400 font-mono">{tx.escrowCode}</span>              },
                 { l: 'Amount',      v: <span className="font-black text-lg">{tx.amount} <span className="text-amber-400 text-sm">Pi</span></span> },
-                { l: 'Buyer',       v: <span className="font-black text-sm">@{tx.buyerUsername}</span>                            },
+                { l: 'Buyer',       v: (
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-black text-sm">@{tx.buyerUsername}</span>
+                    {buyerTrust && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 flex items-center gap-1">
+                        {buyerTrust.level === 'High Trust' ? '🟢 High' : buyerTrust.level === 'Medium Trust' ? '🟡 Medium' : '🔴 Low'}
+                      </span>
+                    )}
+                  </div>
+                )},
                 { l: 'Status',      v: <StatusBadge status={tx.status} />                                                         },
               ].map(({ l, v }) => (
                 <div key={l} className="flex items-center justify-between">
@@ -1751,6 +1839,40 @@ function AdminTab({ username }: { username: string }) {
     ];
   }, [transactions]);
 
+  const suspiciousUsers = useMemo(() => {
+    const users = new Map<string, Transaction[]>();
+    transactions.forEach(tx => {
+      if (tx.buyerUsername) {
+        if (!users.has(tx.buyerUsername)) users.set(tx.buyerUsername, []);
+        users.get(tx.buyerUsername)!.push(tx);
+      }
+      if (tx.sellerUsername) {
+        if (!users.has(tx.sellerUsername)) users.set(tx.sellerUsername, []);
+        users.get(tx.sellerUsername)!.push(tx);
+      }
+    });
+
+    const suspicious: { username: string; reason: string; trustScore: number }[] = [];
+
+    users.forEach((userTxs, username) => {
+      const disputed = userTxs.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
+      const refunded = userTxs.filter(t => t.status === 'REFUNDED').length;
+      const total = userTxs.length;
+      const refundRate = total > 0 ? refunded / total : 0;
+      
+      let reason = '';
+      if (disputed > 2) reason = 'Too many disputes';
+      else if (refunded > 3) reason = 'Too many refunds';
+      else if (refundRate > 0.5 && total >= 2) reason = 'High refund rate';
+
+      if (reason) {
+        suspicious.push({ username, reason, trustScore: calculateTrustScore(userTxs).score });
+      }
+    });
+
+    return suspicious;
+  }, [transactions]);
+
   const filtered = filter === 'ALL' ? transactions : transactions.filter(t => t.status === filter);
 
   return (
@@ -1787,6 +1909,49 @@ function AdminTab({ username }: { username: string }) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Fraud Detection Section */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-red-950/20 to-orange-950/20 border border-red-500/15 space-y-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={16} className="text-red-400" />
+          <h3 className="text-sm font-black text-red-400 uppercase tracking-widest">Fraud Detection</h3>
+        </div>
+        
+        {suspiciousUsers.length === 0 ? (
+          <div className="text-center py-6 border border-white/5 rounded-xl bg-black/20">
+            <ShieldCheck size={20} className="mx-auto text-emerald-400 opacity-50 mb-2" />
+            <p className="text-[11px] font-black text-emerald-400">No suspicious activity detected</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {suspiciousUsers.map(su => (
+              <div key={su.username} className="bg-black/40 border border-red-500/10 rounded-xl p-3 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="font-black text-sm truncate">@{su.username}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-black tracking-wider uppercase">
+                        {su.reason}
+                      </span>
+                      <span className="text-[9px] text-neutral-500">
+                        Trust: <span className={su.trustScore >= 71 ? 'text-emerald-400' : su.trustScore >= 41 ? 'text-amber-400' : 'text-rose-400'}>{su.trustScore}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 border-t border-white/5 pt-2">
+                  <button onClick={() => doAction('warn', '', { target: su.username })} className="flex-1 py-1.5 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 text-[10px] font-black transition-all">
+                    Warn User
+                  </button>
+                  <button onClick={() => doAction('block', '', { target: su.username })} className="flex-1 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[10px] font-black transition-all">
+                    Block User
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -1905,39 +2070,6 @@ function AdminTab({ username }: { username: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE TAB
 // ─────────────────────────────────────────────────────────────────────────────
-
-function calculateTrustScore(transactions: Transaction[]): { score: number; level: string; color: string; details: string[]; disputed: number } {
-  let score = 50; // base score
-  const details = [];
-  
-  const completed = transactions.filter(t => t.status === 'RELEASED').length;
-  const disputed = transactions.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
-  const refunded = transactions.filter(t => t.status === 'REFUNDED').length;
-  const total = transactions.length;
-  const ratings = transactions.filter(t => t.rating).map(t => t.rating as number);
-  const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-  
-  // Positive factors
-  if (completed >= 1) { score += 10; details.push('+10 First completed deal'); }
-  if (completed >= 5) { score += 10; details.push('+10 Trusted trader (5+ deals)'); }
-  if (completed >= 20) { score += 10; details.push('+10 Elite merchant (20+ deals)'); }
-  if (avgRating >= 4.5) { score += 10; details.push('+10 Excellent ratings'); }
-  if (avgRating >= 3) { score += 5; details.push('+5 Good ratings'); }
-  
-  // Negative factors
-  if (disputed > 0) { score -= disputed * 10; details.push('-' + (disputed * 10) + ' Active disputes'); }
-  if (refunded > 0) { score -= refunded * 5; details.push('-' + (refunded * 5) + ' Refunded deals'); }
-  
-  score = Math.max(0, Math.min(100, score));
-  
-  let level = '';
-  let color = '';
-  if (score >= 71) { level = 'High Trust'; color = 'text-emerald-400'; }
-  else if (score >= 41) { level = 'Medium Trust'; color = 'text-amber-400'; }
-  else { level = 'Low Trust'; color = 'text-rose-400'; }
-  
-  return { score, level, color, details, disputed };
-}
 
 function ProfileTab({ username }: { username: string }) {
   const [txs, setTxs]           = useState<Transaction[]>([]);
