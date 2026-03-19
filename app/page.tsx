@@ -1729,6 +1729,27 @@ function AdminTab({ username }: { username: string }) {
     } catch (e: any) { setErr(e.message); }
   };
 
+  const platformStats = useMemo(() => {
+    const released = transactions.filter(t => t.status === 'RELEASED');
+    const totalPi = released.reduce((s, t) => s + (t.amount || 0), 0);
+    const totalFee = released.reduce((s, t) => s + (t.fee || 0), 0);
+    const uniqueUsers = new Set([
+      ...transactions.map(t => t.buyerUsername),
+      ...transactions.map(t => t.sellerUsername).filter(Boolean) as string[],
+    ]).size;
+    const avgSize = released.length > 0 ? totalPi / released.length : 0;
+    const successRate = transactions.length > 0 ? (released.length / transactions.length) * 100 : 0;
+
+    return [
+      { label: 'Total Volume',  value: totalPi.toLocaleString() + ' π', icon: Zap          },
+      { label: 'Transactions',  value: transactions.length,             icon: ClipboardList },
+      { label: 'Active Users',  value: uniqueUsers,                     icon: Users         },
+      { label: 'Total Revenue', value: totalFee.toFixed(2) + ' π',      icon: Wallet        },
+      { label: 'Avg Deal Size', value: avgSize.toFixed(1) + ' π',     icon: Activity      },
+      { label: 'Success Rate',  value: Math.round(successRate) + '%',   icon: TrendingUp    },
+    ];
+  }, [transactions]);
+
   const filtered = filter === 'ALL' ? transactions : transactions.filter(t => t.status === filter);
 
   return (
@@ -1746,6 +1767,38 @@ function AdminTab({ username }: { username: string }) {
         <button onClick={load} className="ml-auto w-8 h-8 rounded-lg bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-red-400 transition-all">
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
         </button>
+      </div>
+
+      {/* Platform Statistics Section */}
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center gap-3 px-1">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
+            <BarChart3 size={18} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-black text-white uppercase tracking-widest leading-none">Platform Overview</h2>
+            <p className="text-[10px] text-neutral-600 mt-1">Global performance metrics</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {platformStats.map((s, i) => (
+            <div key={i} className="group relative p-px rounded-2xl bg-gradient-to-br from-amber-500/30 via-amber-500/10 to-violet-500/30 hover:from-amber-500/50 hover:to-violet-500/50 transition-all duration-300">
+              <div className="bg-[#0b0b0b] rounded-2xl p-4 flex flex-col items-center text-center h-full relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/[0.03] rounded-full -mr-8 -mt-8 blur-xl pointer-events-none" />
+                <div className="w-9 h-9 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300">
+                  <s.icon size={15} className="text-amber-400/80" />
+                </div>
+                <div className="text-[22px] font-black text-amber-500 tracking-tight leading-none mb-1.5 drop-shadow-sm">
+                  {s.value}
+                </div>
+                <div className="text-[9px] font-black text-neutral-600 uppercase tracking-[0.2em]">
+                  {s.label}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Stats */}
