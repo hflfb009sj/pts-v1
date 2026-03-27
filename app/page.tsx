@@ -8,7 +8,7 @@ import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
   ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X, FileDown,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1282,6 +1282,37 @@ function TransactionsTab({
     } catch { /* ignore */ }
   };
 
+  const generatePDF = (tx: Transaction) => {
+    const lines = [
+      'PTrust Oracle — Transaction Receipt',
+      '=====================================',
+      '',
+      `Transaction #:  ${tx.transactionNumber || tx.escrowCode}`,
+      `Escrow Code:    ${tx.escrowCode}`,
+      `Status:         RELEASED`,
+      `Amount:         ${tx.amount} Pi`,
+      `Fee:            ${tx.fee} Pi`,
+      `Description:    ${tx.description || 'N/A'}`,
+      `Buyer:          ${tx.buyerUsername}`,
+      `Seller:         ${tx.sellerUsername || 'N/A'}`,
+      `Created:        ${new Date(tx.createdAt).toLocaleString()}`,
+      tx.releasedAt ? `Released:       ${new Date(tx.releasedAt).toLocaleString()}` : '',
+      tx.sellerTxHash ? `Tx Hash:        ${tx.sellerTxHash}` : '',
+      '',
+      '=====================================',
+      'PTrust Oracle · Pi Network Escrow Protocol',
+      'Support: Riahig45@gmail.com',
+    ].filter(l => l !== undefined).join('\n');
+
+    const blob = new Blob([lines], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `PTrust_Receipt_${tx.transactionNumber || tx.escrowCode}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between px-0.5">
@@ -1404,6 +1435,15 @@ function TransactionsTab({
               <div className="flex items-center gap-1 pt-0.5">
                 <Stars value={tx.rating} />
                 <span className="text-[9px] text-neutral-600 ml-1">Rated</span>
+              </div>
+            )}
+            {tx.status === 'RELEASED' && (
+              <div className="pt-2 border-t border-white/4">
+                <button
+                  onClick={() => generatePDF(tx)}
+                  className="w-full py-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 font-black rounded-xl text-[11px] hover:bg-amber-500/15 transition-all flex items-center justify-center gap-2">
+                  <FileDown size={12} /> Download Transaction Receipt (PDF)
+                </button>
               </div>
             )}
           </div>
