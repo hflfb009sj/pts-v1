@@ -1940,14 +1940,14 @@ function ReceiptsTab({ username }: { username: string }) {
   return (
     <div className="space-y-4">
       <SecHead
-        Icon={FileText}
+        Icon={FileDown}
         title="Transaction Receipts"
         sub="Download official receipts for completed deals"
       />
 
       {txs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4 text-neutral-700">
-          <FileText size={40} className="opacity-20" />
+          <FileDown size={40} className="opacity-20" />
           <p className="text-sm font-black">No completed transactions yet</p>
           <p className="text-[11px] text-neutral-600">Receipts appear once a deal is released</p>
         </div>
@@ -1994,7 +1994,7 @@ function ReceiptsTab({ username }: { username: string }) {
                 onClick={() => generatePDF(tx)}
                 className="w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]"
               >
-                <FileText size={14} />
+                <FileDown size={14} />
                 📄 Download PDF Receipt
               </button>
             </Card>
