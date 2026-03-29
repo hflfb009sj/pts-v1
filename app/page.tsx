@@ -1830,6 +1830,182 @@ function ChatTab({ username }: { username: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RECEIPTS TAB — Download PDF receipts for completed (RELEASED) transactions
+// ─────────────────────────────────────────────────────────────────────────────
+function ReceiptsTab({ username }: { username: string }) {
+  const [txs, setTxs]         = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(username));
+        const data = await res.json();
+        const all: Transaction[] = data.transactions || [];
+        setTxs(all.filter(t => t.status === 'RELEASED'));
+      } catch { /* ignore */ }
+      finally { setLoading(false); }
+    })();
+  }, [username]);
+
+  const generatePDF = (tx: Transaction) => {
+    const isBuyer  = tx.buyerUsername === username;
+    const role     = isBuyer ? 'Buyer' : 'Seller';
+    const dateStr  = new Date(tx.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const win      = window.open('', '_blank', 'width=700,height=900');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PTrust Receipt – ${tx.transactionNumber}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #111; padding: 48px; }
+    .header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #f59e0b; padding-bottom: 24px; margin-bottom: 32px; }
+    .logo-circle { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg,#f59e0b,#fbbf24); display: flex; align-items: center; justify-center: center; font-family: Georgia,serif; font-size: 32px; font-weight: 900; color: #000; text-align:center; line-height:56px; }
+    .brand { font-family: Georgia,serif; font-size: 28px; font-weight: 900; color: #111; }
+    .brand span { color: #f59e0b; }
+    .sub-brand { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #888; margin-top: 2px; }
+    .title-block { text-align: center; margin-bottom: 32px; }
+    .receipt-title { font-size: 20px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: #111; }
+    .receipt-badge { display: inline-block; margin-top: 8px; padding: 4px 14px; border-radius: 999px; background: #d1fae5; color: #065f46; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    .section { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    .section-title { font-size: 10px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; color: #aaa; margin-bottom: 16px; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
+    .row:last-child { border-bottom: none; }
+    .row-label { font-size: 12px; color: #6b7280; font-weight: 500; }
+    .row-value { font-size: 13px; color: #111; font-weight: 700; }
+    .row-value.amber { color: #d97706; font-size: 15px; }
+    .row-value.green { color: #059669; }
+    .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+    .footer p { font-size: 10px; color: #9ca3af; line-height: 1.6; }
+    .footer strong { color: #f59e0b; }
+    @media print { body { padding: 24px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-circle">π</div>
+    <div>
+      <div class="brand">P<span>TRUST</span></div>
+      <div class="sub-brand">Oracle · Escrow Protocol · Pi Network</div>
+    </div>
+  </div>
+  <div class="title-block">
+    <div class="receipt-title">Official Transaction Receipt</div>
+    <div class="receipt-badge">✓ Released &amp; Completed</div>
+  </div>
+  <div class="section">
+    <div class="section-title">Transaction Details</div>
+    <div class="row"><span class="row-label">Transaction #</span><span class="row-value">${tx.transactionNumber || '—'}</span></div>
+    <div class="row"><span class="row-label">Escrow Code</span><span class="row-value">${tx.escrowCode || '—'}</span></div>
+    <div class="row"><span class="row-label">Date</span><span class="row-value">${dateStr}</span></div>
+    <div class="row"><span class="row-label">Status</span><span class="row-value green">Released</span></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Parties</div>
+    <div class="row"><span class="row-label">Buyer</span><span class="row-value">@${tx.buyerUsername || '—'}</span></div>
+    <div class="row"><span class="row-label">Seller</span><span class="row-value">@${tx.sellerUsername || '—'}</span></div>
+    <div class="row"><span class="row-label">Your Role</span><span class="row-value">${role}</span></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Financial Summary</div>
+    <div class="row"><span class="row-label">Amount</span><span class="row-value amber">${tx.amount} π</span></div>
+    <div class="row"><span class="row-label">Platform Fee (1%)</span><span class="row-value">${tx.fee ?? (tx.amount * 0.01).toFixed(4)} π</span></div>
+    <div class="row"><span class="row-label">Net to Seller</span><span class="row-value">${(tx.amount - (tx.fee ?? tx.amount * 0.01)).toFixed(4)} π</span></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Description</div>
+    <div style="font-size:13px;color:#374151;line-height:1.6;">${tx.description || 'No description provided.'}</div>
+  </div>
+  <div class="footer">
+    <p>This receipt is generated by <strong>PTrust Oracle</strong> — Secured on Pi Network</p>
+    <p style="margin-top:4px;">Generated on ${new Date().toLocaleString('en-US')} · For support: Riahig45@gmail.com</p>
+  </div>
+  <script>window.onload = () => window.print();<\/script>
+</body>
+</html>`);
+    win.document.close();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <SecHead
+        Icon={FileText}
+        title="Transaction Receipts"
+        sub="Download official receipts for completed deals"
+      />
+
+      {txs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-neutral-700">
+          <FileText size={40} className="opacity-20" />
+          <p className="text-sm font-black">No completed transactions yet</p>
+          <p className="text-[11px] text-neutral-600">Receipts appear once a deal is released</p>
+        </div>
+      ) : (
+        txs.map((tx) => {
+          const isBuyer = tx.buyerUsername === username;
+          const role    = isBuyer ? 'Buyer' : 'Seller';
+          const dateStr = new Date(tx.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          return (
+            <Card key={tx._id} className="p-5 space-y-4">
+              {/* Top row */}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
+                    {tx.transactionNumber || tx.escrowCode}
+                  </p>
+                  <p className="text-[10px] text-neutral-600 mt-0.5">{dateStr}</p>
+                </div>
+                <span className={`text-[8px] font-black px-2.5 py-1 rounded-lg border ${
+                  isBuyer
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                }`}>{role}</span>
+              </div>
+
+              {/* Details */}
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Amount</span>
+                  <span className="font-black text-white">{tx.amount} <span className="text-amber-400">π</span></span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Description</span>
+                  <span className="font-medium text-neutral-300 max-w-[60%] text-right truncate">{tx.description || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Status</span>
+                  <span className="font-black text-emerald-400">✓ Released</span>
+                </div>
+              </div>
+
+              {/* Download button */}
+              <button
+                onClick={() => generatePDF(tx)}
+                className="w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]"
+              >
+                <FileText size={14} />
+                📄 Download PDF Receipt
+              </button>
+            </Card>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ADMIN TAB — Only for GhaithriAHI96
 // ─────────────────────────────────────────────────────────────────────────────
 function AdminTab({ username }: { username: string }) {
@@ -2569,7 +2745,7 @@ function ProfileTab({ username }: { username: string }) {
 // MAIN APP (authenticated)
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'stats' | 'chat' | 'profile' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
+  const [tab, setTab] = useState<'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin'>('buyer'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
   // For deep-linking from transactions tab
   const navigate = useCallback((dest: string, code?: string) => {
@@ -2606,12 +2782,13 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         {/* Tab bar — 2 rows: top 3 + bottom 3 (or 4) */}
         <div className={'grid gap-1 p-1 bg-[#0d0d0d] border border-white/6 rounded-2xl ' + (isAdmin ? 'grid-cols-3' : 'grid-cols-3')}>
           {([
-            { key: 'buyer',        label: 'Buyer',   Icon: Lock          },
-            { key: 'seller',       label: 'Seller',  Icon: Package       },
-            { key: 'transactions', label: 'Deals',   Icon: ClipboardList },
-            { key: 'stats',        label: 'Stats',   Icon: BarChart3     },
-            { key: 'chat',         label: 'Chat',    Icon: MessageCircle },
-            { key: 'profile',      label: 'Profile', Icon: User          },
+            { key: 'buyer',        label: 'Buyer',    Icon: Lock          },
+            { key: 'seller',       label: 'Seller',   Icon: Package       },
+            { key: 'transactions', label: 'Deals',    Icon: ClipboardList },
+            { key: 'receipts',     label: 'Receipts', Icon: FileText      },
+            { key: 'stats',        label: 'Stats',    Icon: BarChart3     },
+            { key: 'chat',         label: 'Chat',     Icon: MessageCircle },
+            { key: 'profile',      label: 'Profile',  Icon: User          },
             ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
           ] as const).map(({ key, label, Icon }) => (
             <button key={key} onClick={() => setTab(key)}
@@ -2630,6 +2807,7 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         {tab === 'buyer'        && <BuyerTab        user={user} />}
         {tab === 'seller'       && <SellerTab        user={user} />}
         {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
+        {tab === 'receipts'     && <ReceiptsTab      username={username} />}
         {tab === 'stats'        && <StatsTab         user={user} />}
         {tab === 'chat'         && <ChatTab          username={username} />}
         {tab === 'profile'      && <ProfileTab       username={username} />}
