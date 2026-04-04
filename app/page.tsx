@@ -854,7 +854,7 @@ function BuyerTab({ user }: { user: PiUser }) {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Amount (Pi)">
-                <input required type="number" min="1" max="100000" step="0.01" placeholder="0.00"
+                <input required type="number" min="0.0001" max="100000" step="0.0001" placeholder="0.00"
                   value={amount} onChange={e => setAmount(e.target.value)}
                   className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 text-amber-400 font-black text-xl focus:border-amber-500/50 outline-none transition-all placeholder-neutral-800" />
               </Field>
