@@ -12,12 +12,12 @@ interface PiContextType {
 const PiContext = createContext<PiContextType>({
   user: null,
   loading: false,
-  authenticateUser: async () => {},
+  authenticateUser: async () => { },
 });
 
 export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser]         = useState<PiUser | null>(null);
-  const [loading, setLoading]   = useState<boolean>(false);
+  const [user, setUser] = useState<PiUser | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
   const [sdkReady, setSdkReady] = useState<boolean>(false);
 
   const onIncompletePaymentFound = useCallback(async (payment: any) => {
@@ -27,7 +27,10 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
         await fetch('/api/escrow/finalize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentId: payment.identifier, txid: payment.transaction?.txid || '' }),
+          body: JSON.stringify({
+            paymentId: payment.identifier,
+            txid: payment.transaction?.txid || '',
+          }),
         });
       }
     } catch (e) {
@@ -37,13 +40,30 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
 
   const authenticateUser = useCallback(async () => {
     const Pi = (window as any).Pi;
+    if (!Pi) return;
     setLoading(true);
     try {
+      // Await Pi.init as Promise
+      await Promise.resolve(Pi.init({ version: '2.0', sandbox: false }));
+
       const auth: PiAuthenticationResult = await (Pi as PiSDK).authenticate(
         ['username', 'payments', 'wallet_address'],
         onIncompletePaymentFound
       );
+
+      // Verify with Pi server
+      try {
+        await fetch('/api/auth/pi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken: auth.accessToken }),
+        });
+      } catch (e) {
+        console.warn('[PTrust] Server verification failed:', e);
+      }
+
       setUser(auth.user);
+      console.log('[PTrust] Authenticated:', auth.user.username);
     } catch (error) {
       console.error('[PTrust] Auth failed:', error);
     } finally {
@@ -55,7 +75,7 @@ export const PiSDKProvider = ({ children }: { children: ReactNode }) => {
     const Pi = (window as any).Pi;
     if (Pi) {
       try {
-        Pi.init({ version: '2.0', sandbox: true });
+        Pi.init({ version: '2.0', sandbox: false });
         setSdkReady(true);
       } catch (e) {
         console.error('[PTrust] Init failed:', e);
