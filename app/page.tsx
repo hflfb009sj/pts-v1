@@ -88,9 +88,9 @@ function calculateTrustScore(transactions: Transaction[]): { score: number; leve
   
   let level = '';
   let color = '';
-  if (score >= 71) { level = 'High Trust'; color = 'text-[#5C8374]'; }
-  else if (score >= 41) { level = 'Medium Trust'; color = 'text-[#F5C46C]'; }
-  else { level = 'Low Trust'; color = 'text-[#C44536]'; }
+  if (score >= 71) { level = 'High Trust'; color = '#5C8374'; }
+  else if (score >= 41) { level = 'Medium Trust'; color = '#F5C46C'; }
+  else { level = 'Low Trust'; color = '#C44536'; }
   
   return { score, level, color, details, disputed };
 }
@@ -121,66 +121,21 @@ function useSessionTimer(onExpire: () => void, active: boolean) {
 // DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────────────────────
 const inputBase =
-  'w-full bg-[#1C1A17] border border-white/10 rounded-xl py-3 px-4 ' +
-  'focus:border-[#F5C46C]/50 outline-none text-sm transition-all ' +
-  'placeholder-[#8A8378] text-neutral-200';
+  'w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 ' +
+  'focus:border-amber-500/50 outline-none text-sm transition-all ' +
+  'placeholder-neutral-700 text-neutral-200';
 
 const STATUS_MAP: Record<TxStatus, { bg: string; dot: string; label: string }> = {
-  PENDING:       { bg: 'bg-[#F5C46C]/10 text-[#F5C46C] border-[#F5C46C]/25',       dot: 'bg-[#F5C46C]',   label: 'Pending'      },
-  ACCEPTED:      { bg: 'bg-[#6FA8C9]/10 text-[#6FA8C9] border-[#6FA8C9]/25',       dot: 'bg-[#6FA8C9]',   label: 'Accepted'     },
-  DELIVERED:     { bg: 'bg-[#6FA8C9]/10 text-[#6FA8C9] border-[#6FA8C9]/25',       dot: 'bg-[#6FA8C9]',   label: 'Delivered'    },
-  FROZEN:        { bg: 'bg-[#C44536]/10 text-[#C44536] border-[#C44536]/25',       dot: 'bg-[#C44536]',   label: 'Frozen'       },
-  UNDER_REVIEW:  { bg: 'bg-[#B8893E]/10 text-[#B8893E] border-[#B8893E]/25',       dot: 'bg-[#B8893E]',   label: 'Under Review' },
-  RELEASED:      { bg: 'bg-[#5C8374]/10 text-[#5C8374] border-[#5C8374]/25',       dot: 'bg-[#5C8374]',   label: 'Released'     },
-  REFUNDED:      { bg: 'bg-[#6FA8C9]/10 text-[#6FA8C9] border-[#6FA8C9]/25',       dot: 'bg-[#6FA8C9]',   label: 'Refunded'     },
-  PENDING_ADMIN: { bg: 'bg-[#B8893E]/10 text-[#B8893E] border-[#B8893E]/25',       dot: 'bg-[#B8893E]',   label: 'Admin Review' },
+  PENDING:       { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/25',       dot: 'bg-amber-400',   label: 'Pending'      },
+  ACCEPTED:      { bg: 'bg-orange-500/10 text-orange-400 border-orange-500/25',    dot: 'bg-orange-400',  label: 'Accepted'     },
+  DELIVERED:     { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Delivered'    },
+  FROZEN:        { bg: 'bg-blue-500/10 text-blue-400 border-blue-500/25',          dot: 'bg-blue-400',    label: 'Frozen'       },
+  UNDER_REVIEW:  { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Under Review' },
+  RELEASED:      { bg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', label: 'Released'     },
+  REFUNDED:      { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Refunded'     },
+  PENDING_ADMIN: { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Admin Review' },
   EXPIRED:       { bg: 'bg-neutral-500/10 text-neutral-500 border-neutral-500/25', dot: 'bg-neutral-500', label: 'Expired'      },
 };
-
-const DEAL_STEPS = ['Created', 'Accepted', 'Delivered', 'Released'];
-
-function getDealStep(status: TxStatus) {
-  if (status === 'RELEASED') return 3;
-  if (status === 'DELIVERED') return 2;
-  if (status === 'ACCEPTED') return 1;
-  if (status === 'PENDING') return 0;
-  if (status === 'FROZEN' || status === 'UNDER_REVIEW' || status === 'PENDING_ADMIN') return 2;
-  return 0;
-}
-
-function DealProgressTracker({ status }: { status: TxStatus }) {
-  const currentStep = getDealStep(status);
-  return (
-    <div className="rounded-2xl border border-white/6 bg-[#1C1A17] p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8A8378]">Deal Progress</span>
-        <span className="text-[10px] font-black text-[#F5C46C]">{DEAL_STEPS[currentStep]}</span>
-      </div>
-      <div className="flex items-center">
-        {DEAL_STEPS.map((step, index) => {
-          const completed = index < currentStep;
-          const active = index === currentStep;
-          return (
-            <div key={step} className="flex-1 flex flex-col items-center">
-              <div className="flex items-center w-full">
-                {index > 0 && <div className={'h-[2px] flex-1 ' + (completed ? 'bg-[#5C8374]' : 'bg-white/10')} />}
-                <div className={'w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black border ' + (
-                  completed ? 'bg-[#5C8374] text-[#1C1A17] border-[#5C8374]' :
-                  active ? 'bg-[#F5C46C] text-[#1C1A17] border-[#F5C46C] shadow-[0_0_0_4px_rgba(245,196,108,0.15)]' :
-                  'bg-[#1C1A17] text-[#8A8378] border-white/10'
-                )}>
-                  {completed ? '✓' : index + 1}
-                </div>
-                {index < DEAL_STEPS.length - 1 && <div className={'h-[2px] flex-1 ' + (completed ? 'bg-[#5C8374]' : 'bg-white/10')} />}
-              </div>
-              <span className={'mt-2 text-[9px] font-black text-center ' + (active ? 'text-[#F5C46C]' : completed ? 'text-[#5C8374]' : 'text-[#8A8378]')}>{step}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REUSABLE UI COMPONENTS
@@ -226,7 +181,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 function ErrBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-[#C44536] text-[11px] p-3.5 bg-[#C44536]/5 border border-[#C44536]/15 rounded-xl leading-relaxed">
+    <div className="flex gap-2.5 text-rose-400 text-[11px] p-3.5 bg-rose-500/5 border border-rose-500/15 rounded-xl leading-relaxed">
       <AlertCircle size={13} className="flex-shrink-0 mt-0.5" /> {msg}
     </div>
   );
@@ -234,7 +189,7 @@ function ErrBox({ msg }: { msg: string }) {
 
 function OkBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-[#5C8374] text-[11px] p-3.5 bg-[#5C8374]/5 border border-[#5C8374]/15 rounded-xl leading-relaxed">
+    <div className="flex gap-2.5 text-emerald-400 text-[11px] p-3.5 bg-emerald-500/5 border border-emerald-500/15 rounded-xl leading-relaxed">
       <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" /> {msg}
     </div>
   );
@@ -242,9 +197,9 @@ function OkBox({ msg }: { msg: string }) {
 
 function InfoBanner({ msg, color = 'amber' }: { msg: string; color?: 'amber' | 'blue' | 'sky' }) {
   const c = {
-    amber: 'text-[#F5C46C] bg-[#F5C46C]/5 border-[#F5C46C]/15',
-    blue:  'text-[#6FA8C9] bg-[#6FA8C9]/5 border-[#6FA8C9]/15',
-    sky:   'text-[#6FA8C9] bg-[#6FA8C9]/5 border-[#6FA8C9]/15',
+    amber: 'text-amber-400 bg-amber-500/5 border-amber-500/15',
+    blue:  'text-blue-400 bg-blue-500/5 border-blue-500/15',
+    sky:   'text-sky-400 bg-sky-500/5 border-sky-500/15',
   }[color];
   return (
     <div className={'text-[11px] font-medium p-3.5 rounded-xl border leading-relaxed flex gap-2 ' + c}>
@@ -256,12 +211,12 @@ function InfoBanner({ msg, color = 'amber' }: { msg: string; color?: 'amber' | '
 function SecHead({ Icon, title, sub }: { Icon: React.ElementType; title: string; sub?: string }) {
   return (
     <div className="flex items-start gap-3 mb-6">
-      <div className="w-9 h-9 rounded-xl bg-[#F5C46C]/10 border border-[#F5C46C]/15 flex items-center justify-center flex-shrink-0">
-        <Icon size={16} className="text-[#F5C46C]" />
+      <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
+        <Icon size={16} className="text-amber-400" />
       </div>
       <div>
-        <h2 className="text-base font-black text-white" style={{ fontFamily: "'Fraunces', serif" }}>{title}</h2>
-        {sub && <p className="text-[11px] text-[#8A8378] mt-0.5">{sub}</p>}
+        <h2 className="text-base font-black text-white">{title}</h2>
+        {sub && <p className="text-[11px] text-neutral-500 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -277,10 +232,10 @@ function PrimaryBtn({
   variant?: 'gold' | 'white' | 'ghost' | 'danger';
 }) {
   const s = {
-    gold:   'bg-gradient-to-r from-[#F5C46C] to-[#B8893E] text-[#1C1A17] hover:from-[#F5C46C] hover:to-[#F5C46C] shadow-[0_8px_32px_rgba(245,196,108,0.18)]',
-    white:  'bg-white text-[#1C1A17] hover:bg-[#F5C46C]/90',
+    gold:   'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]',
+    white:  'bg-white text-black hover:bg-amber-50',
     ghost:  'bg-white/5 border border-white/10 text-white hover:bg-white/10',
-    danger: 'bg-[#C44536]/10 border border-[#C44536]/20 text-[#C44536] hover:bg-[#C44536]/15',
+    danger: 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/15',
   }[variant];
   return (
     <button
@@ -301,8 +256,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between px-0.5">
-        <label className="text-[9px] uppercase font-black tracking-[0.15em] text-[#F5C46C]/80">{label}</label>
-        {hint && <span className="text-[9px] text-[#8A8378]">{hint}</span>}
+        <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">{label}</label>
+        {hint && <span className="text-[9px] text-neutral-600">{hint}</span>}
       </div>
       {children}
     </div>
@@ -336,13 +291,13 @@ function Stars({ value, onRate }: { value?: number; onRate?: (n: number) => void
 function Accordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={'rounded-2xl border overflow-hidden ' + (open ? 'border-[#F5C46C]/20' : 'border-white/6 bg-[#1C1A17]')}>
+    <div className={'rounded-2xl border overflow-hidden ' + (open ? 'border-amber-500/20' : 'border-white/6 bg-[#1C1A17]')}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-4 gap-3 text-left">
         <span className="text-[12px] font-black text-neutral-200 leading-snug">{q}</span>
         <span className={'w-6 h-6 rounded-lg flex items-center justify-center text-sm transition-transform flex-shrink-0 ' +
-          (open ? 'bg-[#F5C46C]/15 text-[#F5C46C] rotate-45' : 'bg-white/5 text-[#8A8378]')}>+</span>
+          (open ? 'bg-amber-500/15 text-amber-400 rotate-45' : 'bg-white/5 text-neutral-500')}>+</span>
       </button>
-      {open && <div className="px-5 pb-4 text-[11px] text-[#8A8378] leading-relaxed border-t border-white/5 pt-3">{a}</div>}
+      {open && <div className="px-5 pb-4 text-[11px] text-neutral-500 leading-relaxed border-t border-white/5 pt-3">{a}</div>}
     </div>
   );
 }
@@ -386,19 +341,6 @@ const FAQS = [
   { q: 'What if the seller never delivers?',
     a: 'Open a dispute after the seller confirms delivery. Submit evidence within 15 days. Judges review and rule. If seller wins by default (no buyer evidence), funds auto-release after 15 days.' },
 ];
-
-function SealBadge({ size = 32 }: { size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'radial-gradient(circle at 35% 30%, #F5C46C, #B8893E 70%)',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.3)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-    }}>
-      <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: size * 0.4, color: '#1C1A17' }}>π</span>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LANDING PAGE (not logged in)
@@ -577,7 +519,7 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
 
           {/* Stats bar */}
           <div className="grid grid-cols-3 gap-2 w-full">
-            {[{ v: '0%', l: 'Fraud Rate' }, { v: '1%', l: 'Platform Fee' }, { v: '24/7', l: 'Active' }].map(s => (
+            {[{ v: '0%', l: 'Fraud Rate' }, { v: '0.1%', l: 'Platform Fee' }, { v: '24/7', l: 'Active' }].map(s => (
               <div key={s.l} className="bg-[#1C1A17] border border-white/6 rounded-xl py-3.5 text-center">
                 <div className="text-xl font-black text-amber-400">{s.v}</div>
                 <div className="text-[9px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
@@ -593,7 +535,7 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
               {/* Left: logo + price */}
               <div className="flex items-center gap-3.5">
                 <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center flex-shrink-0 shadow-[0_0_18px_rgba(245,158,11,0.18)]">
-                  <span className="text-2xl font-black text-amber-400" style={{ fontFamily: "'Georgia', serif", lineHeight: 1 }}>π</span>
+                  <span className="text-2xl font-black text-amber-400" style={{ fontFamily: "'Fraunces', serif", lineHeight: 1 }}>π</span>
                 </div>
                 <div>
                   <div className="text-[9px] uppercase font-black tracking-[0.2em] text-neutral-600 mb-0.5">Pi / USD</div>
@@ -627,7 +569,7 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
               {/* Left: π icon tile */}
               <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: 'linear-gradient(135deg,#7c3aed33,#f59e0b22)', border: '1px solid #7c3aed40', boxShadow: '0 0 18px rgba(124,58,237,0.15)' }}>
-                <span className="text-2xl font-black" style={{ fontFamily: "'Georgia', serif", lineHeight: 1, background: 'linear-gradient(135deg,#a78bfa,#fbbf24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>π</span>
+                <span className="text-2xl font-black" style={{ fontFamily: "'Fraunces', serif", lineHeight: 1, background: 'linear-gradient(135deg,#a78bfa,#fbbf24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>π</span>
               </div>
               {/* Right: value block */}
               <div className="flex-1 min-w-0">
@@ -912,13 +854,13 @@ function BuyerTab({ user }: { user: PiUser }) {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Amount (Pi)">
-                <input required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="0.00"
+                <input required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="0.000000"
                   value={amount} onChange={e => setAmount(e.target.value)}
-                  className="w-full bg-[#1C1A17] border border-white/10 rounded-xl py-3 px-4 text-[#F5C46C] font-black text-xl focus:border-[#F5C46C]/50 outline-none transition-all placeholder-[#8A8378]" />
+                  className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 text-amber-400 font-black text-xl focus:border-amber-500/50 outline-none transition-all placeholder-neutral-800" />
               </Field>
               <Field label="Fee (0.1%)" hint="auto">
-                <div className="w-full bg-[#1C1A17] border border-white/10 rounded-xl py-3 px-4 text-[#8A8378] font-black text-xl">
-                  {fee > 0 ? fee.toFixed(3) : '—'}
+                <div className="w-full bg-neutral-900/40 border border-white/4 rounded-xl py-3 px-4 text-neutral-500 font-black text-xl">
+                  {fee > 0 ? fee.toFixed(6) : '—'}
                 </div>
               </Field>
             </div>
@@ -974,20 +916,10 @@ function BuyerTab({ user }: { user: PiUser }) {
                 onClick={() => {
                   const url = window.location.origin + '/escrow/' + result.escrowCode;
                   if (navigator.share) navigator.share({ title: 'PTrust Escrow', url });
-                  else window.open('https://wa.me/?text=' + encodeURIComponent(url));
+                  else window.open('https://wa.me/?text=' + encodeURIComponent(`PTrust Escrow Deal\nCode: ${result.escrowCode}\nSeller Key: ${result.sellerKey}\nAmount: ${amount} Pi\nLink: https://pts-v1.vercel.app`));
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-black text-amber-400 hover:bg-amber-500/15 transition-colors">
                 <Share2 size={11} /> Share
-              </button>
-              <button
-                onClick={() => {
-                  const waText = encodeURIComponent(
-                    'PTrust Escrow Deal\nCode: ' + result.escrowCode + '\nSeller Key: ' + result.sellerKey + '\nAmount: ' + amount + ' Pi\nLink: https://pts-v1.vercel.app/'
-                  );
-                  window.open('https://wa.me/?text=' + waText, '_blank', 'noopener,noreferrer');
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5C8374]/10 border border-[#5C8374]/20 rounded-lg text-[10px] font-black text-[#5C8374] hover:bg-[#5C8374]/15 transition-colors">
-                <Share2 size={11} /> WhatsApp
               </button>
             </div>
           </Card>
@@ -1211,15 +1143,6 @@ function SellerTab({ user }: { user: PiUser }) {
           </form>
         ) : (
           <div className="space-y-4">
-            <DealProgressTracker status={tx.status} />
-
-            {tx.status === 'ACCEPTED' && new Date(tx.createdAt).getTime() < Date.now() - 3 * 24 * 60 * 60 * 1000 && (
-              <div className="rounded-2xl border border-[#C44536]/20 bg-[#C44536]/10 p-3 text-[11px] text-[#C44536] flex items-start gap-2">
-                <span>⚠️</span>
-                <span>3 days without delivery — buyer may open a dispute.</span>
-              </div>
-            )}
-
             {/* Deal details */}
             <div className="bg-black/40 rounded-xl p-4 space-y-3 border border-white/4">
               {[
@@ -1429,15 +1352,10 @@ function TransactionsTab({
       )}
 
       {!loading && list.length === 0 && (
-        <div className="rounded-3xl border border-white/8 bg-[#1C1A17] p-8 text-center">
-          <div className="flex justify-center mb-4">
-            <SealBadge size={48} />
-          </div>
-          <p className="font-black text-sm text-white" style={{ fontFamily: "'Fraunces', serif" }}>Your deals will appear here</p>
-          <p className="text-[11px] text-[#8A8378] mt-2 leading-relaxed">Create your first escrow in the Buyer workspace to start protecting Pi payments.</p>
-          <button onClick={() => onNavigate('buyer')} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#F5C46C]/10 border border-[#F5C46C]/20 px-4 py-2 text-[11px] font-black text-[#F5C46C]">
-            Open Buyer Tab <ArrowRight size={12} />
-          </button>
+        <div className="text-center py-20 text-neutral-700">
+          <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="font-black text-sm">No transactions yet</p>
+          <p className="text-xs mt-1 opacity-60">Create your first escrow in the Buyer tab</p>
         </div>
       )}
 
@@ -1784,7 +1702,7 @@ function ChatTab({ username }: { username: string }) {
             <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
               <div className="relative">
                 <div className="w-20 h-20 rounded-2xl bg-amber-500/8 border border-amber-500/15 flex items-center justify-center">
-                  <span className="text-3xl font-black" style={{ fontFamily: "'Georgia', serif", background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>P</span>
+                  <span className="text-3xl font-black" style={{ fontFamily: "'Fraunces', serif", background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>P</span>
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-xl bg-[#1C1A17] border border-amber-500/20 flex items-center justify-center">
                   <MessageCircle size={14} className="text-amber-400" />
@@ -1911,6 +1829,47 @@ function ChatTab({ username }: { username: string }) {
   );
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEAL TRACKER COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+function DealTracker({ status }: { status: TxStatus }) {
+  const steps = ['Created', 'Accepted', 'Delivered', 'Released'];
+  const currentIdx =
+    status === 'PENDING'   ? 0 :
+    status === 'ACCEPTED'  ? 1 :
+    status === 'DELIVERED' ? 2 :
+    status === 'RELEASED'  ? 3 : 0;
+  return (
+    <div className="p-3.5 rounded-2xl" style={{ background:'#1C1A17', border:'1px solid rgba(245,196,108,0.10)' }}>
+      <div className="flex items-center">
+        {steps.map((step, i) => (
+          <React.Fragment key={step}>
+            <div className="flex flex-col items-center gap-1.5">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black transition-all"
+                style={i < currentIdx
+                  ? { background: '#5C8374', color: '#0A0908' }
+                  : i === currentIdx
+                  ? { background: '#F5C46C', color: '#151310', boxShadow: '0 0 0 4px rgba(245,196,108,0.20)' }
+                  : { background: '#151310', color: '#8A8378', border: '1px solid rgba(245,196,108,0.10)' }}>
+                {i < currentIdx ? '✓' : i + 1}
+              </div>
+              <span className="text-[8px] font-bold"
+                style={{ color: i === currentIdx ? '#F5C46C' : i < currentIdx ? '#5C8374' : '#8A8378' }}>
+                {step}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <div className="flex-1 h-0.5 mx-1 rounded-full"
+                style={{ background: i < currentIdx ? '#5C8374' : 'rgba(245,196,108,0.10)' }} />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RECEIPTS TAB — Download PDF receipts for completed (RELEASED) transactions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2028,15 +1987,10 @@ function ReceiptsTab({ username }: { username: string }) {
       />
 
       {txs.length === 0 ? (
-        <div className="rounded-3xl border border-white/8 bg-[#1C1A17] p-8 text-center">
-          <div className="flex justify-center mb-4 opacity-40">
-            <SealBadge size={48} />
-          </div>
-          <p className="text-sm font-black text-white" style={{ fontFamily: "'Fraunces', serif" }}>No receipts yet</p>
-          <p className="text-[11px] text-[#8A8378] mt-2 leading-relaxed">Completed releases will turn into downloadable receipts here.</p>
-          <button onClick={() => window.location.reload()} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#F5C46C]/10 border border-[#F5C46C]/20 px-4 py-2 text-[11px] font-black text-[#F5C46C]">
-            Refresh <RefreshCw size={12} />
-          </button>
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-neutral-700">
+          <FileDown size={40} className="opacity-20" />
+          <p className="text-sm font-black">No completed transactions yet</p>
+          <p className="text-[11px] text-neutral-600">Receipts appear once a deal is released</p>
         </div>
       ) : (
         txs.map((tx) => {
@@ -2612,21 +2566,19 @@ function ProfileTab({ username }: { username: string }) {
 
   const recent = txs.slice(0, 5);
   const [showTrustDetails, setShowTrustDetails] = useState(false);
-  const trustRingColor = stats.trustData.score >= 71 ? '#5C8374' : stats.trustData.score >= 41 ? '#F5C46C' : '#C44536';
-  const trustLevelLabel = stats.trustData.score >= 71 ? 'High Trust' : stats.trustData.score >= 41 ? 'Medium Trust' : 'Low Trust';
 
   return (
     <div className="space-y-4">
 
       {/* ── Fraud Warnings ── */}
       {!loading && stats.trustData.score < 30 && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-[#C44536]/10 border border-[#C44536]/20 text-[#C44536]">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
           <AlertTriangle size={16} className="flex-shrink-0" />
-          <p className="text-sm font-black">⚠️ Low trust — other users may be cautious</p>
+          <p className="text-sm font-black">⚠️ Low trust user - proceed with caution</p>
         </div>
       )}
       {!loading && stats.trustData.disputed > 2 && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-[#F5C46C]/10 border border-[#F5C46C]/20 text-[#F5C46C]">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400">
           <AlertCircle size={16} className="flex-shrink-0" />
           <p className="text-sm font-black">Multiple disputes detected</p>
         </div>
@@ -2659,43 +2611,45 @@ function ProfileTab({ username }: { username: string }) {
             <div className="w-full h-32 rounded-xl bg-white/4 animate-pulse mt-4" />
           ) : (
             <div className="w-full mt-4 bg-[#1C1A17] rounded-2xl p-4 border border-white/4">
-              <div className="relative w-32 h-32 flex items-center justify-center mx-auto mb-3">
+              <div className="relative w-28 h-28 flex items-center justify-center mx-auto mb-3">
                 <svg className="w-full h-full transform -rotate-90">
-                  <circle cx="64" cy="64" r="50" fill="transparent" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
-                  <circle cx="64" cy="64" r="50" fill="transparent" stroke={trustRingColor} strokeWidth="10"
-                    strokeDasharray={2 * Math.PI * 50}
-                    strokeDashoffset={(2 * Math.PI * 50) * (1 - stats.trustData.score / 100)}
+                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8" className="text-white/5" />
+                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8"
+                    className={stats.trustData.score >= 71 ? 'text-emerald-500' : stats.trustData.score >= 41 ? 'text-amber-500' : 'text-rose-500'}
+                    strokeDasharray={2 * Math.PI * 46}
+                    strokeDashoffset={(2 * Math.PI * 46) * (1 - stats.trustData.score / 100)}
                     strokeLinecap="round" style={{ transition: 'stroke-dashoffset 1s ease-in-out' }} />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-4xl font-black text-white" style={{ fontFamily: "'Fraunces', serif" }}>{stats.trustData.score}</span>
+                  <span className={`text-3xl font-black ${stats.trustData.color}`}>{stats.trustData.score}</span>
                 </div>
               </div>
 
               <div className="text-center mb-4">
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 bg-white/5 rounded-full inline-block border border-white/10 text-[#F5C46C]">
-                  {trustLevelLabel}
+                <div className={`text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 bg-white/5 rounded-full inline-block border border-white/10 ${stats.trustData.color}`}>
+                  {stats.trustData.level}
                 </div>
               </div>
 
+              {/* Expandable Details */}
               <div className="border-t border-white/5 pt-3 mt-3">
                 <button 
                   onClick={() => setShowTrustDetails(!showTrustDetails)}
-                  className="w-full flex items-center justify-between text-[11px] font-black text-[#8A8378] hover:text-white transition-colors"
+                  className="w-full flex items-center justify-between text-[11px] font-black text-neutral-400 hover:text-white transition-colors"
                 >
-                  What affected this score?
+                  How is this computed?
                   <ChevronDown size={14} className={`transition-transform duration-200 ${showTrustDetails ? 'rotate-180' : ''}`} />
                 </button>
                 {showTrustDetails && (
                   <div className="mt-3 space-y-1.5 px-2">
-                    <div className="text-[10px] text-[#8A8378] mb-2 border-b border-white/5 pb-2 text-left">
+                    <div className="text-[10px] text-neutral-500 mb-2 border-b border-white/5 pb-2 text-left">
                       Base Score: <span className="text-white">50</span>
                     </div>
                     {stats.trustData.details.map((detail, i) => {
                       const isPos = detail.startsWith('+');
                       return (
                         <div key={i} className="flex items-start gap-1.5 text-left">
-                          <span className={`text-[10px] font-black flex-shrink-0 ${isPos ? 'text-[#5C8374]' : 'text-[#C44536]'}`}>
+                          <span className={`text-[10px] font-black flex-shrink-0 ${isPos ? 'text-emerald-500' : 'text-rose-500'}`}>
                             {isPos ? '+' : '-'}
                           </span>
                           <span className="text-[10px] text-neutral-300 leading-relaxed">
@@ -2708,7 +2662,7 @@ function ProfileTab({ username }: { username: string }) {
                 )}
               </div>
 
-              <p className="text-[9px] text-[#8A8378] text-center mt-4">
+              <p className="text-[9px] text-neutral-600 text-center mt-4">
                 Score updates automatically with each transaction
               </p>
             </div>
@@ -2831,103 +2785,88 @@ function ProfileTab({ username }: { username: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN APP (authenticated)
 // ─────────────────────────────────────────────────────────────────────────────
-type AppTab = 'home' | 'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin';
-
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
-  const [tab, setTab] = useState<AppTab>('home');
-  const username = user.username;
-  const isAdmin = username === 'GhaithriAHI96';
+  const [tab, setTab] = useState<'home' | 'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin'>('home'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
-  const homeItems = [
-    { key: 'buyer', label: 'Buyer', emoji: '🔒', bg: 'linear-gradient(160deg,#2B2419,#1C1A17)' },
-    { key: 'seller', label: 'Seller', emoji: '📦', bg: 'linear-gradient(160deg,#1A2329,#1C1A17)' },
-    { key: 'transactions', label: 'Deals', emoji: '🤝', bg: 'linear-gradient(160deg,#1F271F,#1C1A17)' },
-    { key: 'receipts', label: 'Receipts', emoji: '📄', bg: 'linear-gradient(160deg,#2B2419,#1C1A17)' },
-    { key: 'stats', label: 'Stats', emoji: '📊', bg: 'linear-gradient(160deg,#211D2B,#1C1A17)' },
-    { key: 'chat', label: 'Chat', emoji: '💬', bg: 'linear-gradient(160deg,#1A2329,#1C1A17)' },
-    { key: 'profile', label: 'Profile', emoji: '👤', bg: 'linear-gradient(160deg,#2B2419,#1C1A17)' },
-    ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', emoji: '🛡️', bg: 'linear-gradient(160deg,#2B1A19,#1C1A17)' }] : []),
-  ] as const;
-
-  const compactTabs = [
-    { key: 'buyer', label: 'Buy', Icon: Lock },
-    { key: 'seller', label: 'Sell', Icon: Package },
-    { key: 'transactions', label: 'Deals', Icon: ClipboardList },
-    { key: 'receipts', label: 'Receipts', Icon: FileDown },
-    { key: 'stats', label: 'Stats', Icon: BarChart3 },
-    { key: 'chat', label: 'Chat', Icon: MessageCircle },
-    { key: 'profile', label: 'Profile', Icon: User },
-    ...(isAdmin ? [{ key: 'admin', label: 'Admin', Icon: Shield }] : []),
-  ] as const;
+  // For deep-linking from transactions tab
+  const navigate = useCallback((dest: string, code?: string) => {
+    setTab('buyer');
+    // code is available for pre-filling — handled inside BuyerTab via state lifting if needed
+  }, []);
 
   return (
-    <main className="min-h-screen flex flex-col items-center bg-[#0A0908] text-white pb-32">
-      <div className="fixed top-0 left-0 right-0 h-[250px] bg-gradient-to-b from-[#F5C46C]/[0.04] to-transparent pointer-events-none" />
+    <main className="min-h-screen flex flex-col items-center bg-[#0A0908] text-white pb-28">
+      <div className="fixed top-0 left-0 right-0 h-[250px] bg-gradient-to-b from-amber-500/[0.025] to-transparent pointer-events-none" />
 
       <div className="w-full max-w-lg px-4 mt-6 space-y-4 relative">
-        <div className="rounded-[28px] border border-white/8 bg-[#1C1A17]/90 px-4 py-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <SealBadge size={38} />
-              <div className="min-w-0">
-                <h1 className="text-xl font-black tracking-[-0.03em] text-white" style={{ fontFamily: "'Fraunces', serif" }}>
-                  P<span className="text-[#F5C46C]">TRUST</span>
-                </h1>
-                <p className="text-[11px] text-[#8A8378] tracking-wide">@{user.username}</p>
-              </div>
+        {/* Header */}
+        <div className="flex items-center justify-between py-1">
+          <div className="flex items-center gap-3">
+            <div style={{ width:40, height:40, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)', boxShadow:'0 2px 8px rgba(0,0,0,.45),inset 0 1px 2px rgba(255,255,255,.28)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ fontFamily:"'Fraunces',serif", fontWeight:900, fontSize:17, color:'#151310' }}>π</span>
             </div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#F5C46C] to-[#B8893E] flex items-center justify-center text-[#1C1A17] font-black text-sm">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <button
-                onClick={onLogout}
-                className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#8A8378] hover:text-[#C44536] hover:bg-[#C44536]/10 transition-all"
-                title="Sign out">
-                <LogOut size={14} />
-              </button>
+            <div>
+              <h1 className="text-xl font-black tracking-[-0.03em]" style={{ fontFamily: "'Fraunces', serif" }}>
+                P<span style={{ color:'#F5C46C' }}>TRUST</span>
+              </h1>
+              <p className="text-[10px] tracking-wide" style={{ color:'#8A8378' }}>@{user.username}</p>
             </div>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-black font-black text-sm">
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+            <button
+              onClick={onLogout}
+              className="w-8 h-8 rounded-xl bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-rose-400 hover:bg-rose-500/5 transition-all"
+              title="Sign out">
+              <LogOut size={13} />
+            </button>
           </div>
         </div>
 
+        {/* Tab bar — 2 rows: top 3 + bottom 3 (or 4) */}
+        {/* ── Icon Grid Home Screen ── */}
         {tab === 'home' && (
-          <div className="grid grid-cols-3 gap-3 pt-2">
-            {homeItems.map(({ key, label, emoji, bg }) => (
-              <button key={key} onClick={() => setTab(key)}
-                className="flex flex-col items-center gap-2.5 group active:scale-95 transition-all duration-150">
-                <div className="w-full aspect-square rounded-[22px] flex items-center justify-center text-3xl group-hover:scale-105 transition-transform"
-                  style={{ background: bg, border: '1px solid rgba(245,196,108,0.12)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
-                  {emoji}
-                </div>
-                <span className={'text-[11px] font-bold ' + (key === 'admin' ? 'text-[#C44536]' : 'text-neutral-300')}>{label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {tab !== 'home' && (
-          <div className="space-y-3">
-            <button onClick={() => setTab('home')}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black text-[#8A8378] hover:text-[#F5C46C] transition-colors"
-              style={{ background: '#1C1A17', border: '1px solid rgba(245,196,108,0.10)' }}>
-              <ArrowRight size={12} className="rotate-180" /> Home
-            </button>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {compactTabs.map(({ key, label, Icon }) => (
-                <button key={key} onClick={() => setTab(key as AppTab)}
-                  className={'flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-[10px] font-black transition-all ' +
-                    (tab === key ? 'text-[#1C1A17]' : 'text-[#8A8378] hover:text-neutral-300')}
-                  style={tab === key ? { background: 'linear-gradient(135deg,#F5C46C,#B8893E)' } : { background: '#1C1A17', border: '1px solid rgba(245,196,108,0.10)' }}>
-                  <Icon size={11} />{label}
+          <div className="space-y-5 pt-2">
+            <p className="text-[10px] font-black uppercase tracking-widest px-1" style={{ color: '#8A8378' }}>Quick Access</p>
+            <div className="grid grid-cols-3 gap-4">
+              {([
+                { key: 'buyer',        label: 'Buyer',    emoji: '🔒', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
+                { key: 'seller',       label: 'Seller',   emoji: '📦', bg: 'linear-gradient(160deg,#1A2329,#151310)' },
+                { key: 'transactions', label: 'Deals',    emoji: '🤝', bg: 'linear-gradient(160deg,#1F271F,#151310)' },
+                { key: 'receipts',     label: 'Receipts', emoji: '📄', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
+                { key: 'stats',        label: 'Stats',    emoji: '📊', bg: 'linear-gradient(160deg,#211D2B,#151310)' },
+                { key: 'chat',         label: 'Chat',     emoji: '💬', bg: 'linear-gradient(160deg,#1A2329,#151310)' },
+                { key: 'profile',      label: 'Profile',  emoji: '👤', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
+                ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', emoji: '🛡️', bg: 'linear-gradient(160deg,#2B1A19,#151310)' }] : []),
+              ] as const).map(({ key, label, emoji, bg }) => (
+                <button key={key} onClick={() => setTab(key)}
+                  className="flex flex-col items-center gap-3 group active:scale-95 transition-all duration-150">
+                  <div className="w-full aspect-square flex items-center justify-center group-hover:scale-105 transition-transform duration-200"
+                    style={{ background: bg, border: `1px solid ${key === 'admin' ? 'rgba(196,69,54,0.2)' : 'rgba(245,196,108,0.10)'}`, borderRadius: 22, boxShadow: '0 6px 20px rgba(0,0,0,.4),inset 0 1px 1px rgba(255,255,255,.04)', fontSize: 34 }}>
+                    {emoji}
+                  </div>
+                  <span className="text-[12px] font-bold" style={{ color: key === 'admin' ? '#C44536' : '#D8D2C5' }}>{label}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
+        {/* ── Back button when inside a section ── */}
+        {tab !== 'home' && (
+          <button onClick={() => setTab('home')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black transition-all"
+            style={{ background: '#1C1A17', border: '1px solid rgba(245,196,108,0.10)', color: '#8A8378' }}>
+            <Home size={12} /> Home
+          </button>
+        )}
+
+        {/* Tab content */}
         {tab === 'buyer'        && <BuyerTab        user={user} />}
         {tab === 'seller'       && <SellerTab        user={user} />}
-        {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={(nextTab) => setTab(nextTab as any)} />}
+        {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
         {tab === 'receipts'     && <ReceiptsTab      username={username} />}
         {tab === 'stats'        && <StatsTab         user={user} />}
         {tab === 'chat'         && <ChatTab          username={username} />}
