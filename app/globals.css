@@ -1,37 +1,17 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@layer base {
-  *, *::before, *::after {
-    box-sizing: border-box;
-  }
-
-  html {
-    -webkit-text-size-adjust: 100%;
-    -webkit-tap-highlight-color: transparent;
-    scroll-behavior: smooth;
-  }
-
-  body {
-    background: #0A0908;
-    color: #E8E4DC;
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overscroll-behavior: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  input, textarea, select {
-    font-size: 16px;
-  }
-
-  a, button {
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(245,196,108,0.15); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(245,196,108,0.30); }
+body {
+  background: #0A0908;
+  color: #E8E4DC;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
 }
+
+input, textarea, select { font-size: 16px; }
+a, button { -webkit-tap-highlight-color: transparent; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(245,196,108,0.15); border-radius: 99px; }
