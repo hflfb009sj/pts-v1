@@ -1,62 +1,31 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/mongodb";
-import { hash } from "bcryptjs";
-import { generateEscrowCode, generateBuyerKey, generateSellerKey, generateTransactionNumber } from "@/lib/escrow-helpers";
+import { NextRequest, NextResponse } from 'next/server';
+import { getDb } from '@/lib/mongodb';
+import { compare } from 'bcryptjs';
 
-async function approvePiPayment(paymentId: string) {
-  const res = await fetch("https://api.minepi.com/v2/payments/" + paymentId + "/approve", {
-    method: "POST",
-    headers: { Authorization: "Key " + process.env.PI_API_KEY, "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error("Pi approval failed: " + res.status);
-  return res.json();
-}
-
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const { paymentId, sellerWallet, amount, fee, description, buyerUsername } = await request.json();
-    if (!paymentId) throw new Error("paymentId is required");
-    if (!sellerWallet?.trim()) throw new Error("Seller wallet is required");
-    if (!buyerUsername?.trim()) throw new Error("Buyer username is required");
-    if (!amount || amount < 1) throw new Error("Minimum amount is 0.0001 Pi");
-    if (amount > 10000) throw new Error("Maximum amount is 10,000 Pi");
-    if (!sellerWallet.trim().startsWith("G") || sellerWallet.trim().length !== 56)
-      throw new Error("Invalid seller wallet address");
+    const { escrowCode, sellerUsername, sellerKey } = await req.json();
+    if (!escrowCode || !sellerUsername) return NextResponse.json({ success: false, error: 'Missing fields' }, { status: 400 });
+
     const db = await getDb();
-    const blacklisted = await db.collection("blacklist").findOne({ wallet: sellerWallet.trim() });
-    if (blacklisted) throw new Error("Seller wallet is blacklisted");
-    await approvePiPayment(paymentId);
-    let escrowCode = generateEscrowCode();
-    let attempts = 0;
-    while (await db.collection("transactions").findOne({ escrowCode }) && attempts < 10) {
-      escrowCode = generateEscrowCode();
-      attempts++;
+    const tx = await db.collection('transactions').findOne({ escrowCode: escrowCode.toUpperCase() });
+    if (!tx) return NextResponse.json({ success: false, error: 'Escrow not found' }, { status: 404 });
+    if (tx.status !== 'PENDING') return NextResponse.json({ success: false, error: 'Escrow not in PENDING status' }, { status: 400 });
+    if (tx.buyerUsername === sellerUsername) return NextResponse.json({ success: false, error: 'Buyer cannot accept own escrow' }, { status: 400 });
+
+    if (sellerKey && tx.sellerKey) {
+      const valid = await compare(sellerKey, tx.sellerKey);
+      if (!valid) return NextResponse.json({ success: false, error: 'Invalid Seller Key' }, { status: 401 });
     }
-    const rawBuyerKey = generateBuyerKey();
-    const rawSellerKey = generateSellerKey();
-    const hashedBuyerKey = await hash(rawBuyerKey, 10);
-    const hashedSellerKey = await hash(rawSellerKey, 10);
-    const transactionNumber = await generateTransactionNumber(db);
+
     const now = new Date();
-    await db.collection("transactions").insertOne({
-      transactionNumber, escrowCode,
-      buyerKey: hashedBuyerKey, sellerKey: hashedSellerKey,
-      paymentId, piPaymentCompleted: false,
-      sellerWallet: sellerWallet.trim(), buyerUsername: buyerUsername.trim(),
-      sellerUsername: null,
-      amount: Number(amount), fee: Number(fee) || Number(amount) / 100,
-      description: description?.trim() || "No description",
-      status: "PENDING",
-      commissionWallet: process.env.PI_COMMISSION_WALLET,
-      escrowWallet: process.env.PI_ESCROW_WALLET,
-      releaseAttempts: 0, buyerKeyAttempts: 0, sellerKeyAttempts: 0,
-      createdAt: now, updatedAt: now,
-      expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-      auditLog: [{ action: "CREATED", by: buyerUsername.trim(), at: now, note: "Escrow created" }],
+    await db.collection('transactions').updateOne({ escrowCode: escrowCode.toUpperCase() }, {
+      $set: { status: 'ACCEPTED', sellerUsername, acceptedAt: now, updatedAt: now },
+      $push: { auditLog: { action: 'ACCEPTED', by: sellerUsername, at: now, note: 'Deal accepted by seller' } } as any,
     });
-    return NextResponse.json({ success: true, transactionNumber, escrowCode, buyerKey: rawBuyerKey, sellerKey: rawSellerKey });
-  } catch (error: any) {
-    console.error("[Create]", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ success: true, message: 'Deal accepted — funds locked' });
+  } catch (e: any) {
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }
 }
