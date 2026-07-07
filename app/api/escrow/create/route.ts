@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     if (!paymentId) throw new Error("paymentId is required");
     if (!sellerWallet?.trim()) throw new Error("Seller wallet is required");
     if (!buyerUsername?.trim()) throw new Error("Buyer username is required");
-    if (!amount || amount < 1) throw new Error("Minimum amount is 1 Pi");
+    if (!amount || amount < 1) throw new Error("Minimum amount is 0.0001 Pi");
     if (amount > 10000) throw new Error("Maximum amount is 10,000 Pi");
     if (!sellerWallet.trim().startsWith("G") || sellerWallet.trim().length !== 56)
       throw new Error("Invalid seller wallet address");

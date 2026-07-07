@@ -8,7 +8,7 @@ import {
   ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
   Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
   ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X, FileDown,
+  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X, FileDown, Home,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,34 +117,68 @@ function useSessionTimer(onExpire: () => void, active: boolean) {
   }, [reset, active]);
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OFFLINE DETECTOR
+// ─────────────────────────────────────────────────────────────────────────────
+function useOnlineStatus() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const on  = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online',  on);
+    window.addEventListener('offline', off);
+    setOnline(navigator.onLine);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+  return online;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API FETCH WITH RETRY
+// ─────────────────────────────────────────────────────────────────────────────
+async function apiFetchWithRetry(url: string, body?: object, retries = 2): Promise<any> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await apiFetch(url, body);
+    } catch (err: any) {
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────────────────────
 const inputBase =
-  'w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 ' +
-  'focus:border-amber-500/50 outline-none text-sm transition-all ' +
-  'placeholder-neutral-700 text-neutral-200';
+  'w-full border rounded-2xl py-4 px-5 ' +
+  'outline-none text-sm transition-all ' +
+  'placeholder-[#8A8378] text-[#E8E4DC]';
+const inputStyle = { background: '#1C1A17', borderColor: 'rgba(245,196,108,0.12)' };
 
-const STATUS_MAP: Record<TxStatus, { bg: string; dot: string; label: string }> = {
-  PENDING:       { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/25',       dot: 'bg-amber-400',   label: 'Pending'      },
-  ACCEPTED:      { bg: 'bg-orange-500/10 text-orange-400 border-orange-500/25',    dot: 'bg-orange-400',  label: 'Accepted'     },
-  DELIVERED:     { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Delivered'    },
-  FROZEN:        { bg: 'bg-blue-500/10 text-blue-400 border-blue-500/25',          dot: 'bg-blue-400',    label: 'Frozen'       },
-  UNDER_REVIEW:  { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Under Review' },
-  RELEASED:      { bg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', label: 'Released'     },
-  REFUNDED:      { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/25',             dot: 'bg-sky-400',     label: 'Refunded'     },
-  PENDING_ADMIN: { bg: 'bg-violet-500/10 text-violet-400 border-violet-500/25',    dot: 'bg-violet-400',  label: 'Admin Review' },
-  EXPIRED:       { bg: 'bg-neutral-500/10 text-neutral-500 border-neutral-500/25', dot: 'bg-neutral-500', label: 'Expired'      },
+const STATUS_STYLE: Record<TxStatus, { bg: string; dot: string; label: string; color: string }> = {
+  PENDING:       { bg:'rgba(245,196,108,.08)', dot:'#F5C46C', label:'Pending',      color:'#F5C46C' },
+  ACCEPTED:      { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Accepted',     color:'#6FA8C9' },
+  DELIVERED:     { bg:'rgba(92,131,116,.08)',  dot:'#5C8374', label:'Delivered',    color:'#5C8374' },
+  FROZEN:        { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Frozen',       color:'#6FA8C9' },
+  UNDER_REVIEW:  { bg:'rgba(155,138,196,.08)', dot:'#9B8AC4', label:'Under Review', color:'#9B8AC4' },
+  RELEASED:      { bg:'rgba(92,131,116,.08)',  dot:'#5C8374', label:'Released',     color:'#5C8374' },
+  REFUNDED:      { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Refunded',     color:'#6FA8C9' },
+  PENDING_ADMIN: { bg:'rgba(196,69,54,.08)',   dot:'#C44536', label:'Admin Review', color:'#C44536' },
+  EXPIRED:       { bg:'rgba(138,131,120,.08)', dot:'#8A8378', label:'Expired',      color:'#8A8378' },
 };
+const STATUS_MAP = STATUS_STYLE;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REUSABLE UI COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: TxStatus }) {
-  const s = STATUS_MAP[status] || STATUS_MAP.PENDING;
+  const s = STATUS_STYLE[status] || STATUS_STYLE.PENDING;
   return (
-    <span className={'inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.15em] px-2.5 py-1 rounded-full border ' + s.bg}>
-      <span className={'w-1.5 h-1.5 rounded-full ' + s.dot} />
+    <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] px-2.5 py-1 rounded-full"
+      style={{ background: s.bg, color: s.color, border: `1px solid ${s.color}25` }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
       {s.label}
     </span>
   );
@@ -158,8 +192,12 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
       className={
         'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ' +
         (ok
-          ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
-          : 'bg-white/5 border border-white/8 text-neutral-500 hover:text-white hover:bg-white/10')
+          ? 'border'
+          : 'border')
+      }
+      style={ok
+        ? { background:'rgba(92,131,116,.15)', borderColor:'rgba(92,131,116,.40)', color:'#5C8374' }
+        : { background:'#1C1A17', borderColor:'rgba(245,196,108,0.12)', color:'#8A8378' }
       }>
       {ok ? <CheckCircle2 size={11} /> : <Copy size={11} />}
       {ok ? 'Copied!' : (label ?? 'Copy')}
@@ -173,7 +211,7 @@ function Spin() {
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={'bg-[#1C1A17] border border-white/6 rounded-2xl ' + className}>
+    <div className={'rounded-3xl ' + className} style={{ background:'#151310', border:'1px solid rgba(245,196,108,0.10)', boxShadow:'0 2px 16px rgba(0,0,0,.3)' }}>
       {children}
     </div>
   );
@@ -181,16 +219,16 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 function ErrBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-rose-400 text-[11px] p-3.5 bg-rose-500/5 border border-rose-500/15 rounded-xl leading-relaxed">
-      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" /> {msg}
+    <div className="flex gap-2.5 text-[11px] p-4 rounded-2xl leading-relaxed" style={{ background:"rgba(196,69,54,.08)", color:"#C44536", border:"1px solid rgba(196,69,54,.30)" }}>
+      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color:"#C44536" }}/> {msg}
     </div>
   );
 }
 
 function OkBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-emerald-400 text-[11px] p-3.5 bg-emerald-500/5 border border-emerald-500/15 rounded-xl leading-relaxed">
-      <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" /> {msg}
+    <div className="flex gap-2.5 text-[11px] p-4 rounded-2xl leading-relaxed" style={{ background:"rgba(92,131,116,.08)", color:"#5C8374", border:"1px solid rgba(92,131,116,.30)" }}>
+      <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" style={{ color:"#5C8374" }}/> {msg}
     </div>
   );
 }
@@ -211,8 +249,8 @@ function InfoBanner({ msg, color = 'amber' }: { msg: string; color?: 'amber' | '
 function SecHead({ Icon, title, sub }: { Icon: React.ElementType; title: string; sub?: string }) {
   return (
     <div className="flex items-start gap-3 mb-6">
-      <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
-        <Icon size={16} className="text-amber-400" />
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background:'rgba(245,196,108,0.10)', border:'1px solid rgba(245,196,108,0.20)' }}>
+        <Icon size={17} style={{ color:'#F5C46C' }} />
       </div>
       <div>
         <h2 className="text-base font-black text-white">{title}</h2>
@@ -232,7 +270,7 @@ function PrimaryBtn({
   variant?: 'gold' | 'white' | 'ghost' | 'danger';
 }) {
   const s = {
-    gold:   'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]',
+    gold:   'text-[#151310] font-black shadow-[0_8px_32px_rgba(245,196,108,0.25)]',
     white:  'bg-white text-black hover:bg-amber-50',
     ghost:  'bg-white/5 border border-white/10 text-white hover:bg-white/10',
     danger: 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/15',
@@ -243,10 +281,11 @@ function PrimaryBtn({
       disabled={disabled}
       onClick={onClick}
       className={
-        'w-full py-3.5 font-black rounded-xl transition-all duration-200 ' +
-        'active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed ' +
-        'flex items-center justify-center gap-2 text-[12px] tracking-wide ' + s
-      }>
+        'w-full py-4 font-black rounded-2xl transition-all duration-200 ' +
+        'active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed ' +
+        'flex items-center justify-center gap-2 text-[13px] tracking-wide ' + s
+      }
+      style={variant === 'gold' ? { background: 'linear-gradient(135deg,#F5C46C,#B8893E)' } : variant === 'danger' ? { background:'rgba(196,69,54,.10)', border:'1px solid rgba(196,69,54,.3)', color:'#C44536' } : {}}>
       {children}
     </button>
   );
@@ -256,7 +295,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between px-0.5">
-        <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">{label}</label>
+        <label className="text-[9px] uppercase font-black tracking-[0.18em]" style={{ color:'rgba(245,196,108,0.80)' }}>{label}</label>
         {hint && <span className="text-[9px] text-neutral-600">{hint}</span>}
       </div>
       {children}
@@ -279,7 +318,7 @@ function Stars({ value, onRate }: { value?: number; onRate?: (n: number) => void
           className="transition-all hover:scale-110 disabled:cursor-default">
           <Star
             size={18}
-            className={n <= (hov || sel) ? 'text-amber-400' : 'text-neutral-700'}
+            className={n <= (hov || sel) ? 'text-[#F5C46C]' : 'text-[#3A3631]'}
             fill={n <= (hov || sel) ? 'currentColor' : 'none'}
           />
         </button>
@@ -291,7 +330,7 @@ function Stars({ value, onRate }: { value?: number; onRate?: (n: number) => void
 function Accordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className={'rounded-2xl border overflow-hidden ' + (open ? 'border-amber-500/20' : 'border-white/6 bg-[#1C1A17]')}>
+    <div className='rounded-2xl overflow-hidden' style={{ background:'#1C1A17', border:`1px solid ${open ? 'rgba(245,196,108,0.25)' : 'rgba(245,196,108,0.10)'}` }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-4 gap-3 text-left">
         <span className="text-[12px] font-black text-neutral-200 leading-snug">{q}</span>
         <span className={'w-6 h-6 rounded-lg flex items-center justify-center text-sm transition-transform flex-shrink-0 ' +
@@ -650,9 +689,16 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
             <Wallet size={17} />
             {loading ? 'Authenticating…' : 'Get Started — Connect Pi Wallet'}
           </button>
-          <p className="text-center text-[10px] text-neutral-700">
-            Support: <span className="text-amber-500/60">Riahig45@gmail.com</span>
-          </p>
+          <div className="text-center space-y-2">
+            <p className="text-[10px] text-neutral-700">
+              Support: <a href="mailto:Riahig45@gmail.com" style={{ color:'rgba(245,196,108,0.6)' }}>Riahig45@gmail.com</a>
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <a href="/privacy" className="text-[10px]" style={{ color:'rgba(138,131,120,0.5)' }}>Privacy Policy</a>
+              <span style={{ color:'rgba(138,131,120,0.3)' }}>·</span>
+              <a href="/terms" className="text-[10px]" style={{ color:'rgba(138,131,120,0.5)' }}>Terms of Service</a>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -842,7 +888,7 @@ function BuyerTab({ user }: { user: PiUser }) {
             <Field label="Seller Wallet Address">
               <input required placeholder="G…" value={sellerWallet}
                 onChange={e => setSellerWallet(e.target.value)}
-                className={inputBase} />
+                className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
             </Field>
 
             {sellerTrustScore !== null && sellerTrustScore < 30 && (
@@ -856,10 +902,10 @@ function BuyerTab({ user }: { user: PiUser }) {
               <Field label="Amount (Pi)">
                 <input required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="0.000000"
                   value={amount} onChange={e => setAmount(e.target.value)}
-                  className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 text-amber-400 font-black text-xl focus:border-amber-500/50 outline-none transition-all placeholder-neutral-800" />
+                  className="w-full rounded-2xl py-4 px-5 outline-none font-black text-xl transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
               </Field>
               <Field label="Fee (0.1%)" hint="auto">
-                <div className="w-full bg-neutral-900/40 border border-white/4 rounded-xl py-3 px-4 text-neutral-500 font-black text-xl">
+                <div className="w-full rounded-2xl py-4 px-5 font-black text-xl border" style={{ background:"rgba(21,19,16,0.5)", borderColor:"rgba(245,196,108,0.05)", color:"#8A8378" }}>
                   {fee > 0 ? fee.toFixed(6) : '—'}
                 </div>
               </Field>
@@ -868,7 +914,7 @@ function BuyerTab({ user }: { user: PiUser }) {
             <Field label="Deal Terms" hint="optional">
               <textarea placeholder="Describe the goods or service being exchanged…"
                 value={desc} onChange={e => setDesc(e.target.value)} rows={3}
-                className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+                className="w-full rounded-2xl py-4 px-5 outline-none text-sm resize-none transition-all border text-[#C8C0B4]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
             </Field>
 
             {createErr && <ErrBox msg={createErr} />}
@@ -975,18 +1021,18 @@ function BuyerTab({ user }: { user: PiUser }) {
           <Field label="Escrow Code">
             <input required placeholder="PTO-XXXXXX" value={relCode}
               onChange={e => setRelCode(e.target.value.toUpperCase())}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+              className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-sm uppercase tracking-widest transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
           </Field>
           <Field label="Buyer Key">
             <input required placeholder="BK-XXXXXXXX" value={relKey}
               onChange={e => setRelKey(e.target.value)}
-              className={inputBase} />
+              className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
           </Field>
           <div className="bg-amber-500/4 border border-amber-500/15 rounded-xl p-3.5 space-y-2">
             <p className="text-[10px] text-amber-400/70 font-black">Type CONFIRM to authorize this irreversible release</p>
             <input placeholder="CONFIRM" value={relConfirm}
               onChange={e => setRelConfirm(e.target.value)}
-              className="w-full bg-black/60 border border-amber-500/20 rounded-xl py-3 px-4 focus:border-amber-500/60 outline-none text-sm text-center font-black tracking-[0.3em] transition-all placeholder-neutral-700 text-amber-400" />
+              className="w-full rounded-xl py-3 px-4 outline-none text-sm text-center font-black tracking-[0.3em] transition-all border" style={{ background:"#0A0908", borderColor:"rgba(245,196,108,0.20)", color:"#F5C46C" }} />
           </div>
           {relErr && <ErrBox msg={relErr} />}
           {relOk  && <OkBox  msg={relOk} />}
@@ -1026,12 +1072,12 @@ function BuyerTab({ user }: { user: PiUser }) {
           <Field label="Escrow Code">
             <input required placeholder="PTO-XXXXXX" value={evCode}
               onChange={e => setEvCode(e.target.value.toUpperCase())}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+              className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-sm uppercase tracking-widest transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
           </Field>
           <Field label="Evidence" hint="max 5 items">
             <textarea required placeholder="URL, tracking number, description, or any supporting proof…"
               value={evText} onChange={e => setEvText(e.target.value)} rows={4}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+              className="w-full rounded-2xl py-4 px-5 outline-none text-sm resize-none transition-all border text-[#C8C0B4]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
           </Field>
           {evErr && <ErrBox msg={evErr} />}
           {evOk  && <OkBox  msg="Evidence submitted successfully." />}
@@ -1129,12 +1175,12 @@ function SellerTab({ user }: { user: PiUser }) {
             <Field label="Escrow Code" hint="From buyer">
               <input required placeholder="PTO-XXXXXX" value={code}
                 onChange={e => setCode(e.target.value.toUpperCase())}
-                className="w-full bg-black/60 border border-white/8 rounded-xl py-4 px-4 focus:border-amber-500/50 outline-none font-mono text-2xl text-center tracking-[0.2em] uppercase transition-all placeholder-neutral-800 text-amber-400" />
+                className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-2xl text-center tracking-[0.2em] uppercase transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
             </Field>
             <Field label="Seller Key" hint="From buyer">
               <input placeholder="SK-XXXXXXXX" value={key}
                 onChange={e => setKey(e.target.value)}
-                className={inputBase} />
+                className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
             </Field>
             {err && <ErrBox msg={err} />}
             <PrimaryBtn type="submit" disabled={loading || !code}>
@@ -1143,24 +1189,35 @@ function SellerTab({ user }: { user: PiUser }) {
           </form>
         ) : (
           <div className="space-y-4">
+            {/* Deal progress tracker */}
+            <DealTracker status={tx.status} />
+
+            {/* Delay warning */}
+            {tx.status === 'ACCEPTED' && (Date.now() - new Date(tx.createdAt).getTime()) > 3*24*60*60*1000 && (
+              <div className="flex gap-2 text-[11px] p-3.5 rounded-2xl" style={{ background:'rgba(196,69,54,.08)', color:'#C44536', border:'1px solid rgba(196,69,54,.25)' }}>
+                <span className="flex-shrink-0">⚠️</span>
+                <span>3 days without delivery — buyer may open a dispute soon</span>
+              </div>
+            )}
+
             {/* Deal details */}
-            <div className="bg-black/40 rounded-xl p-4 space-y-3 border border-white/4">
+            <div className="rounded-2xl p-4 space-y-3" style={{ background:'#1C1A17', border:'1px solid rgba(245,196,108,0.10)' }}>
               {[
-                { l: 'TX Number',   v: <span className="font-black text-amber-400 font-mono text-xs">{tx.transactionNumber}</span> },
-                { l: 'Escrow Code', v: <span className="font-black text-amber-400 font-mono">{tx.escrowCode}</span>              },
-                { l: 'Amount',      v: <span className="font-black text-lg">{tx.amount} <span className="text-amber-400 text-sm">Pi</span></span> },
-                { l: 'Buyer',       v: <span className="font-black text-sm">@{tx.buyerUsername}</span>                            },
+                { l: 'TX Number',   v: <span className="font-black font-mono text-xs" style={{ color:'#F5C46C' }}>{tx.transactionNumber}</span> },
+                { l: 'Escrow Code', v: <span className="font-black font-mono" style={{ color:'#F5C46C' }}>{tx.escrowCode}</span>              },
+                { l: 'Amount',      v: <span className="font-black text-lg text-white">{tx.amount} <span style={{ color:'#F5C46C' }}>π</span></span> },
+                { l: 'Buyer',       v: <span className="font-black text-sm text-white">@{tx.buyerUsername}</span>                            },
                 { l: 'Status',      v: <StatusBadge status={tx.status} />                                                         },
               ].map(({ l, v }) => (
                 <div key={l} className="flex items-center justify-between">
-                  <span className="text-[9px] uppercase font-black tracking-widest text-neutral-600">{l}</span>
+                  <span className="text-[9px] uppercase font-black tracking-widest" style={{ color:'#8A8378' }}>{l}</span>
                   {v}
                 </div>
               ))}
               {tx.description && (
-                <div className="pt-1 border-t border-white/4">
-                  <div className="text-[9px] uppercase font-black tracking-widest text-neutral-600 mb-1.5">Deal Terms</div>
-                  <p className="text-sm text-neutral-300 leading-relaxed">{tx.description}</p>
+                <div className="pt-2" style={{ borderTop:'1px solid rgba(245,196,108,0.08)' }}>
+                  <div className="text-[9px] uppercase font-black tracking-widest mb-1.5" style={{ color:'#8A8378' }}>Deal Terms</div>
+                  <p className="text-sm leading-relaxed text-white">{tx.description}</p>
                 </div>
               )}
             </div>
@@ -1172,7 +1229,7 @@ function SellerTab({ user }: { user: PiUser }) {
                 <Field label="Seller Key">
                   <input placeholder="SK-XXXXXXXX" value={key}
                     onChange={e => setKey(e.target.value)}
-                    className={inputBase} />
+                    className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
                 </Field>
                 <PrimaryBtn onClick={accept} disabled={loading}>
                   {loading ? <><Spin /> Processing…</> : <><Shield size={14} /> Accept Deal</>}
@@ -2795,10 +2852,19 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
   }, []);
 
   return (
-    <main className="min-h-screen flex flex-col items-center bg-[#0A0908] text-white pb-28">
+    <main className="min-h-screen flex flex-col items-center text-white pb-28" style={{ background:"#0A0908" }}>
       <div className="fixed top-0 left-0 right-0 h-[250px] bg-gradient-to-b from-amber-500/[0.025] to-transparent pointer-events-none" />
 
       <div className="w-full max-w-lg px-4 mt-6 space-y-4 relative">
+
+        {/* ── Offline banner — isOnline set at top of App ── */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[11px] font-black"
+            style={{ background:'rgba(196,69,54,.12)', color:'#C44536', border:'1px solid rgba(196,69,54,.30)' }}>
+            <span>📡</span> No internet connection — some features may not work
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between py-1">
           <div className="flex items-center gap-3">
@@ -2829,6 +2895,17 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
         {/* ── Icon Grid Home Screen ── */}
         {tab === 'home' && (
           <div className="space-y-5 pt-2">
+            {/* First-time user tip */}
+            <div className="flex items-start gap-3 p-4 rounded-2xl"
+              style={{ background:'rgba(245,196,108,0.06)', border:'1px solid rgba(245,196,108,0.12)' }}>
+              <span className="text-lg flex-shrink-0">💡</span>
+              <div>
+                <p className="text-[11px] font-black text-white">New to PTrust?</p>
+                <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color:'#8A8378' }}>
+                  Tap <strong style={{ color:'#F5C46C' }}>Buyer</strong> to create a secure escrow deal, or <strong style={{ color:'#6FA8C9' }}>Seller</strong> to accept one. Your funds stay locked until both parties confirm.
+                </p>
+              </div>
+            </div>
             <p className="text-[10px] font-black uppercase tracking-widest px-1" style={{ color: '#8A8378' }}>Quick Access</p>
             <div className="grid grid-cols-3 gap-4">
               {([
@@ -2896,17 +2973,17 @@ export default function HomePage() {
     return (
       <main className="min-h-screen flex items-center justify-center p-6 bg-[#0A0908] text-white">
         <div className="text-center space-y-6 max-w-xs w-full">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-            <Clock size={24} className="text-amber-400" />
+          <div style={{ width:64,height:64,borderRadius:'50%',background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto' }}>
+            <span style={{ fontFamily:"'Fraunces',serif",fontWeight:900,fontSize:26,color:'#151310' }}>π</span>
           </div>
           <div>
-            <h2 className="text-2xl font-black">Session Expired</h2>
-            <p className="text-neutral-500 text-sm mt-2 leading-relaxed">
+            <h2 className="text-2xl font-black" style={{ fontFamily:"'Fraunces',serif" }}>Session Expired</h2>
+            <p className="text-sm mt-2 leading-relaxed" style={{ color:'#8A8378' }}>
               You were inactive for 30 minutes. Please sign in again.
             </p>
           </div>
           <PrimaryBtn onClick={() => { setExpired(false); authenticateUser(); }}>
-            <Wallet size={15} /> Sign In Again
+            <span style={{ fontSize:18 }}>π</span> Sign In Again
           </PrimaryBtn>
         </div>
       </main>
@@ -2917,11 +2994,14 @@ export default function HomePage() {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#0A0908]">
         <div className="flex flex-col items-center gap-4">
+          <div style={{ width:72,height:72,borderRadius:'50%',background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)',boxShadow:'0 4px 16px rgba(0,0,0,.5),inset 0 1px 2px rgba(255,255,255,.3)',display:'flex',alignItems:'center',justifyContent:'center' }}>
+            <span style={{ fontFamily:"'Fraunces',serif",fontWeight:900,fontSize:30,color:'#151310' }}>π</span>
+          </div>
           <h1 className="text-4xl font-black text-white" style={{ fontFamily: "'Fraunces', serif" }}>
-            P<span className="text-transparent" style={{ WebkitTextStroke: '2px #f59e0b' }}>TRUST</span>
+            P<span style={{ color:'#F5C46C' }}>TRUST</span>
           </h1>
-          <div className="animate-spin h-8 w-8 border-2 border-amber-500 border-t-transparent rounded-full" />
-          <p className="text-neutral-600 text-xs tracking-widest uppercase">Connecting to Pi Network…</p>
+          <div className="animate-spin h-7 w-7 border-2 border-t-transparent rounded-full" style={{ borderColor:'#F5C46C' }} />
+          <p className="text-[11px] uppercase tracking-[0.3em]" style={{ color:'#8A8378' }}>Connecting to Pi Network…</p>
         </div>
       </main>
     );
