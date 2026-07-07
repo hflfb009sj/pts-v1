@@ -1,18 +1,7 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
-import { Inter, Fraunces } from 'next/font/google';
 import { PiSDKProvider } from '@/components/PiSDKProvider';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
 import React from 'react';
-
-const inter = Fraunces({
-  subsets: ['latin'],
-  weight: ['600', '700', '800', '900'],
-  variable: '--font-fraunces',
-  display: 'swap',
-});
-
-const interFont = { className: 'font-sans' };
 
 export const metadata: Metadata = {
   title: 'PTrust Oracle | Secure Pi Escrow',
@@ -38,7 +27,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`dark ${inter.variable}`}>
+    <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -48,11 +37,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body style={{ background: '#0A0908', margin: 0, padding: 0 }}>
-        <ErrorBoundary>
-          <PiSDKProvider>
-            {children}
-          </PiSDKProvider>
-        </ErrorBoundary>
+        <PiSDKProvider>
+          {children}
+        </PiSDKProvider>
       </body>
     </html>
   );
