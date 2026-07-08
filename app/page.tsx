@@ -2844,6 +2844,7 @@ function ProfileTab({ username }: { username: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
   const isOnline = useOnlineStatus();
+  const isOnline = useOnlineStatus();
   const [tab, setTab] = useState<'home' | 'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin'>('home'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
 
   // For deep-linking from transactions tab
