@@ -1,12 +1,11 @@
-import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { PiSDKProvider } from '@/components/PiSDKProvider';
 import React from 'react';
+import './globals.css';
 
 export const metadata: Metadata = {
   title: 'PTrust Oracle | Secure Pi Escrow',
-  description: 'Lock funds · verify delivery · release with confidence. The most secure escrow protocol on Pi Network.',
-  keywords: ['Pi Network', 'Escrow', 'PTrust Oracle', 'Secure Trade', 'Pi Escrow', 'Blockchain'],
+  description: 'Lock funds · verify delivery · release with confidence.',
   authors: [{ name: 'PTrust Oracle' }],
   openGraph: {
     title: 'PTrust Oracle — Secure Escrow on Pi Network',
