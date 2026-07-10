@@ -2854,7 +2854,7 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
 
   return (
     <main className="min-h-screen flex flex-col items-center text-white pb-28" style={{ background:"#0A0908" }}>
-      <div className="fixed top-0 left-0 right-0 h-[250px] bg-gradient-to-b from-amber-500/[0.025] to-transparent pointer-events-none" />
+      <div className="fixed top-0 left-0 right-0 h-[200px] pointer-events-none" style={{ background:"radial-gradient(ellipse at 50% -30%,rgba(245,196,108,0.06),transparent 70%)" }} />
 
       <div className="w-full max-w-lg px-4 mt-6 space-y-4 relative">
 
@@ -2880,12 +2880,12 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-black font-black text-sm">
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black" style={{ background: "linear-gradient(135deg,#F5C46C,#B8893E)", color: "#151310" }}>
               {user.username.charAt(0).toUpperCase()}
             </div>
             <button
               onClick={onLogout}
-              className="w-8 h-8 rounded-xl bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-rose-400 hover:bg-rose-500/5 transition-all"
+              className="w-9 h-9 rounded-2xl flex items-center justify-center transition-all" style={{ background:"#1C1A17", border:"1px solid rgba(245,196,108,0.10)", color:"#8A8378" }}
               title="Sign out">
               <LogOut size={13} />
             </button>
