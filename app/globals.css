@@ -1,20 +1,16 @@
 @import "tailwindcss";
 
-@source "../app/**/*.{ts,tsx}";
-@source "../components/**/*.{ts,tsx}";
-
-@layer base {
-  body {
-    background: #0A0908;
-    color: #E8E4DC;
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    margin: 0;
-    padding: 0;
-    overscroll-behavior: none;
-  }
-  input, textarea, select { font-size: 16px; }
-  a, button { -webkit-tap-highlight-color: transparent; }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-thumb { background: rgba(245,196,108,0.15); border-radius: 99px; }
+body {
+  background: #0A0908;
+  color: #E8E4DC;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior: none;
 }
+
+input, textarea, select { font-size: 16px; }
+a, button { -webkit-tap-highlight-color: transparent; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(245,196,108,0.15); border-radius: 99px; }
