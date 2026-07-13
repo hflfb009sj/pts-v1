@@ -1,14 +1,13 @@
 'use client';
 
-import React, {
-  useState, useEffect, useMemo, useCallback, useRef,
-} from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePiSDK } from '@/components/PiSDKProvider';
 import {
-  ShieldCheck, Wallet, AlertCircle, CheckCircle2, ArrowRight, Lock, Zap,
-  Copy, Share2, Key, Package, ClipboardList, Star, BarChart3, AlertTriangle,
-  ChevronDown, LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity,
-  Eye, EyeOff, RefreshCw, XCircle, FileText, Users, Info, MessageCircle, Send, User, Search, X, FileDown, Home,
+  AlertCircle, CheckCircle2, ArrowRight, Lock, Zap, Copy, Share2, Key,
+  Package, ClipboardList, Star, BarChart3, AlertTriangle, ChevronDown,
+  LogOut, Clock, Mail, Shield, Hash, TrendingUp, Activity, Eye, EyeOff,
+  RefreshCw, XCircle, FileText, Info, MessageCircle, Send, User,
+  Search, X, FileDown, Home,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,7 +35,6 @@ interface Transaction {
   frozenAt?: string;
   releasedAt?: string;
   rating?: number;
-  sellerTxHash?: string;
 }
 
 interface EscrowResult {
@@ -49,54 +47,44 @@ interface EscrowResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // API HELPER
 // ─────────────────────────────────────────────────────────────────────────────
-async function apiFetch(url: string, body?: object) {
+async function apiFetch(url: string, body?: object): Promise<any> {
   const opts: RequestInit = body
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     : { method: 'GET' };
-  const res  = await fetch(url, opts);
+  const res = await fetch(url, opts);
   const data = await res.json();
   if (!data.success) throw new Error(data.error || 'Request failed');
   return data;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TRUST SCORE HELPER
+// TRUST SCORE ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
-function calculateTrustScore(transactions: Transaction[]): { score: number; level: string; color: string; details: string[]; disputed: number } {
-  let score = 50; // base score
-  const details = [];
-  
+function calculateTrustScore(transactions: Transaction[]) {
+  let score = 50;
+  const details: string[] = [];
   const completed = transactions.filter(t => t.status === 'RELEASED').length;
-  const disputed = transactions.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
-  const refunded = transactions.filter(t => t.status === 'REFUNDED').length;
-  const total = transactions.length;
-  const ratings = transactions.filter(t => t.rating).map(t => t.rating as number);
+  const disputed  = transactions.filter(t => ['FROZEN','UNDER_REVIEW','PENDING_ADMIN'].includes(t.status)).length;
+  const refunded  = transactions.filter(t => t.status === 'REFUNDED').length;
+  const ratings   = transactions.filter(t => t.rating).map(t => t.rating as number);
   const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-  
-  // Positive factors
-  if (completed >= 1) { score += 10; details.push('+10 First completed deal'); }
-  if (completed >= 5) { score += 10; details.push('+10 Trusted trader (5+ deals)'); }
-  if (completed >= 20) { score += 10; details.push('+10 Elite merchant (20+ deals)'); }
+
+  if (completed >= 1)   { score += 10; details.push('+10 First completed deal'); }
+  if (completed >= 5)   { score += 10; details.push('+10 Trusted trader (5+ deals)'); }
+  if (completed >= 20)  { score += 10; details.push('+10 Elite merchant (20+ deals)'); }
   if (avgRating >= 4.5) { score += 10; details.push('+10 Excellent ratings'); }
-  if (avgRating >= 3) { score += 5; details.push('+5 Good ratings'); }
-  
-  // Negative factors
-  if (disputed > 0) { score -= disputed * 10; details.push('-' + (disputed * 10) + ' Active disputes'); }
-  if (refunded > 0) { score -= refunded * 5; details.push('-' + (refunded * 5) + ' Refunded deals'); }
-  
+  if (avgRating >= 3)   { score += 5;  details.push('+5 Good ratings'); }
+  if (disputed > 0)     { score -= disputed * 10; details.push(`-${disputed * 10} Active disputes`); }
+  if (refunded > 0)     { score -= refunded * 5;  details.push(`-${refunded * 5} Refunded deals`); }
+
   score = Math.max(0, Math.min(100, score));
-  
-  let level = '';
-  let color = '';
-  if (score >= 71) { level = 'High Trust'; color = '#5C8374'; }
-  else if (score >= 41) { level = 'Medium Trust'; color = '#F5C46C'; }
-  else { level = 'Low Trust'; color = '#C44536'; }
-  
+  const level = score >= 71 ? 'High Trust' : score >= 41 ? 'Medium Trust' : 'Low Trust';
+  const color = score >= 71 ? '#5C8374'   : score >= 41 ? '#F5C46C'      : '#C44536';
   return { score, level, color, details, disputed };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SESSION TIMER HOOK — 30-minute inactivity logout
+// SESSION TIMER
 // ─────────────────────────────────────────────────────────────────────────────
 function useSessionTimer(onExpire: () => void, active: boolean) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,7 +92,6 @@ function useSessionTimer(onExpire: () => void, active: boolean) {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(onExpire, 30 * 60 * 1000);
   }, [onExpire]);
-
   useEffect(() => {
     if (!active) return;
     const events = ['mousemove', 'keydown', 'touchstart', 'click'];
@@ -117,9 +104,8 @@ function useSessionTimer(onExpire: () => void, active: boolean) {
   }, [reset, active]);
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
-// OFFLINE DETECTOR
+// ONLINE STATUS
 // ─────────────────────────────────────────────────────────────────────────────
 function useOnlineStatus() {
   const [online, setOnline] = useState(true);
@@ -128,59 +114,83 @@ function useOnlineStatus() {
     const off = () => setOnline(false);
     window.addEventListener('online',  on);
     window.addEventListener('offline', off);
-    setOnline(navigator.onLine);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    if (typeof navigator !== 'undefined') setOnline(navigator.onLine);
+    return () => {
+      window.removeEventListener('online',  on);
+      window.removeEventListener('offline', off);
+    };
   }, []);
   return online;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API FETCH WITH RETRY
-// ─────────────────────────────────────────────────────────────────────────────
-async function apiFetchWithRetry(url: string, body?: object, retries = 2): Promise<any> {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await apiFetch(url, body);
-    } catch (err: any) {
-      if (i === retries) throw err;
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────────────────────
-const inputBase =
-  'w-full border rounded-2xl py-4 px-5 ' +
-  'outline-none text-sm transition-all ' +
-  'placeholder-[#8A8378] text-[#E8E4DC]';
-const inputStyle = { background: '#1C1A17', borderColor: 'rgba(245,196,108,0.12)' };
+const C = {
+  bg:     '#0A0908',
+  card:   '#151310',
+  card2:  '#1C1A17',
+  gold:   '#F5C46C',
+  goldD:  '#B8893E',
+  sage:   '#5C8374',
+  terra:  '#C44536',
+  sky:    '#6FA8C9',
+  violet: '#9B8AC4',
+  muted:  '#8A8378',
+  border: 'rgba(245,196,108,0.10)',
+} as const;
 
 const STATUS_STYLE: Record<TxStatus, { bg: string; dot: string; label: string; color: string }> = {
-  PENDING:       { bg:'rgba(245,196,108,.08)', dot:'#F5C46C', label:'Pending',      color:'#F5C46C' },
-  ACCEPTED:      { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Accepted',     color:'#6FA8C9' },
-  DELIVERED:     { bg:'rgba(92,131,116,.08)',  dot:'#5C8374', label:'Delivered',    color:'#5C8374' },
-  FROZEN:        { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Frozen',       color:'#6FA8C9' },
-  UNDER_REVIEW:  { bg:'rgba(155,138,196,.08)', dot:'#9B8AC4', label:'Under Review', color:'#9B8AC4' },
-  RELEASED:      { bg:'rgba(92,131,116,.08)',  dot:'#5C8374', label:'Released',     color:'#5C8374' },
-  REFUNDED:      { bg:'rgba(111,168,201,.08)', dot:'#6FA8C9', label:'Refunded',     color:'#6FA8C9' },
-  PENDING_ADMIN: { bg:'rgba(196,69,54,.08)',   dot:'#C44536', label:'Admin Review', color:'#C44536' },
-  EXPIRED:       { bg:'rgba(138,131,120,.08)', dot:'#8A8378', label:'Expired',      color:'#8A8378' },
+  PENDING:       { bg: 'rgba(245,196,108,.08)', dot: '#F5C46C', label: 'Pending',      color: '#F5C46C' },
+  ACCEPTED:      { bg: 'rgba(111,168,201,.08)', dot: '#6FA8C9', label: 'Accepted',     color: '#6FA8C9' },
+  DELIVERED:     { bg: 'rgba(92,131,116,.08)',  dot: '#5C8374', label: 'Delivered',    color: '#5C8374' },
+  FROZEN:        { bg: 'rgba(111,168,201,.08)', dot: '#6FA8C9', label: 'Frozen',       color: '#6FA8C9' },
+  UNDER_REVIEW:  { bg: 'rgba(155,138,196,.08)', dot: '#9B8AC4', label: 'Under Review', color: '#9B8AC4' },
+  RELEASED:      { bg: 'rgba(92,131,116,.08)',  dot: '#5C8374', label: 'Released',     color: '#5C8374' },
+  REFUNDED:      { bg: 'rgba(111,168,201,.08)', dot: '#6FA8C9', label: 'Refunded',     color: '#6FA8C9' },
+  PENDING_ADMIN: { bg: 'rgba(196,69,54,.08)',   dot: '#C44536', label: 'Admin Review', color: '#C44536' },
+  EXPIRED:       { bg: 'rgba(138,131,120,.08)', dot: '#8A8378', label: 'Expired',      color: '#8A8378' },
 };
-const STATUS_MAP = STATUS_STYLE;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REUSABLE UI COMPONENTS
+// SHARED COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
+
+function Seal({ size = 32 }: { size?: number }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: `radial-gradient(circle at 35% 30%, ${C.gold}, ${C.goldD} 70%)`,
+      boxShadow: `0 2px 8px rgba(0,0,0,.45), inset 0 1px 2px rgba(255,255,255,.28)`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: size * 0.38, color: C.card }}>π</span>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: TxStatus }) {
   const s = STATUS_STYLE[status] || STATUS_STYLE.PENDING;
   return (
-    <span className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] px-2.5 py-1 rounded-full"
-      style={{ background: s.bg, color: s.color, border: `1px solid ${s.color}25` }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em',
+      padding: '3px 8px', borderRadius: 999,
+      background: s.bg, color: s.color, border: `1px solid ${s.color}25`,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.dot, display: 'inline-block' }} />
       {s.label}
     </span>
+  );
+}
+
+function Spin() {
+  return (
+    <div style={{
+      width: 16, height: 16, borderRadius: '50%',
+      border: '2px solid currentColor', borderTopColor: 'transparent',
+      animation: 'spin 0.7s linear infinite', flexShrink: 0,
+    }} />
   );
 }
 
@@ -188,30 +198,29 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
   const [ok, setOk] = useState(false);
   return (
     <button
-      onClick={() => { navigator.clipboard.writeText(text); setOk(true); setTimeout(() => setOk(false), 2000); }}
-      className={
-        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ' +
-        (ok
-          ? 'border'
-          : 'border')
-      }
-      style={ok
-        ? { background:'rgba(92,131,116,.15)', borderColor:'rgba(92,131,116,.40)', color:'#5C8374' }
-        : { background:'#1C1A17', borderColor:'rgba(245,196,108,0.12)', color:'#8A8378' }
-      }>
+      onClick={() => { navigator.clipboard?.writeText(text); setOk(true); setTimeout(() => setOk(false), 2000); }}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '5px 12px', borderRadius: 10, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+        background: ok ? 'rgba(92,131,116,.15)' : C.card2,
+        color: ok ? C.sage : C.muted,
+        border: `1px solid ${ok ? 'rgba(92,131,116,.35)' : C.border}`,
+        transition: 'all .2s',
+      }}>
       {ok ? <CheckCircle2 size={11} /> : <Copy size={11} />}
       {ok ? 'Copied!' : (label ?? 'Copy')}
     </button>
   );
 }
 
-function Spin() {
-  return <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />;
-}
-
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div className={'rounded-3xl ' + className} style={{ background:'#151310', border:'1px solid rgba(245,196,108,0.10)', boxShadow:'0 2px 16px rgba(0,0,0,.3)' }}>
+    <div style={{
+      background: C.card, border: `1px solid ${C.border}`,
+      borderRadius: 24, padding: 20,
+      boxShadow: '0 2px 16px rgba(0,0,0,.3)',
+      ...style,
+    }}>
       {children}
     </div>
   );
@@ -219,43 +228,34 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 
 function ErrBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-[11px] p-4 rounded-2xl leading-relaxed" style={{ background:"rgba(196,69,54,.08)", color:"#C44536", border:"1px solid rgba(196,69,54,.30)" }}>
-      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color:"#C44536" }}/> {msg}
+    <div style={{
+      display: 'flex', gap: 10, padding: 14, borderRadius: 16, fontSize: 11, lineHeight: 1.6,
+      background: 'rgba(196,69,54,.08)', color: C.terra, border: `1px solid rgba(196,69,54,.30)`,
+    }}>
+      <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />{msg}
     </div>
   );
 }
 
 function OkBox({ msg }: { msg: string }) {
   return (
-    <div className="flex gap-2.5 text-[11px] p-4 rounded-2xl leading-relaxed" style={{ background:"rgba(92,131,116,.08)", color:"#5C8374", border:"1px solid rgba(92,131,116,.30)" }}>
-      <CheckCircle2 size={13} className="flex-shrink-0 mt-0.5" style={{ color:"#5C8374" }}/> {msg}
+    <div style={{
+      display: 'flex', gap: 10, padding: 14, borderRadius: 16, fontSize: 11, lineHeight: 1.6,
+      background: 'rgba(92,131,116,.08)', color: C.sage, border: `1px solid rgba(92,131,116,.30)`,
+    }}>
+      <CheckCircle2 size={14} style={{ flexShrink: 0, marginTop: 1 }} />{msg}
     </div>
   );
 }
 
-function InfoBanner({ msg, color = 'amber' }: { msg: string; color?: 'amber' | 'blue' | 'sky' }) {
-  const c = {
-    amber: 'text-amber-400 bg-amber-500/5 border-amber-500/15',
-    blue:  'text-blue-400 bg-blue-500/5 border-blue-500/15',
-    sky:   'text-sky-400 bg-sky-500/5 border-sky-500/15',
-  }[color];
+function InfoBanner({ msg, type = 'gold' }: { msg: string; type?: 'gold' | 'sky' | 'terra' }) {
+  const col = type === 'gold' ? C.gold : type === 'sky' ? C.sky : C.terra;
   return (
-    <div className={'text-[11px] font-medium p-3.5 rounded-xl border leading-relaxed flex gap-2 ' + c}>
-      <Info size={12} className="flex-shrink-0 mt-0.5" /> {msg}
-    </div>
-  );
-}
-
-function SecHead({ Icon, title, sub }: { Icon: React.ElementType; title: string; sub?: string }) {
-  return (
-    <div className="flex items-start gap-3 mb-6">
-      <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background:'rgba(245,196,108,0.10)', border:'1px solid rgba(245,196,108,0.20)' }}>
-        <Icon size={17} style={{ color:'#F5C46C' }} />
-      </div>
-      <div>
-        <h2 className="text-base font-black text-white">{title}</h2>
-        {sub && <p className="text-[11px] text-neutral-500 mt-0.5">{sub}</p>}
-      </div>
+    <div style={{
+      display: 'flex', gap: 8, padding: 12, borderRadius: 14, fontSize: 11, lineHeight: 1.6,
+      background: `${col}0d`, color: col, border: `1px solid ${col}25`,
+    }}>
+      <Info size={13} style={{ flexShrink: 0, marginTop: 1 }} />{msg}
     </div>
   );
 }
@@ -263,29 +263,25 @@ function SecHead({ Icon, title, sub }: { Icon: React.ElementType; title: string;
 function PrimaryBtn({
   children, disabled, onClick, type = 'button', variant = 'gold',
 }: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  type?: 'button' | 'submit';
-  variant?: 'gold' | 'white' | 'ghost' | 'danger';
+  children: React.ReactNode; disabled?: boolean; onClick?: () => void;
+  type?: 'button' | 'submit'; variant?: 'gold' | 'ghost' | 'danger' | 'sage';
 }) {
-  const s = {
-    gold:   'text-[#151310] font-black shadow-[0_8px_32px_rgba(245,196,108,0.25)]',
-    white:  'bg-white text-black hover:bg-amber-50',
-    ghost:  'bg-white/5 border border-white/10 text-white hover:bg-white/10',
-    danger: 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/15',
-  }[variant];
+  const styles: Record<string, React.CSSProperties> = {
+    gold:   { background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.card, boxShadow: `0 8px 24px rgba(245,196,108,.25)` },
+    ghost:  { background: C.card2, color: '#E8E4DC', border: `1px solid ${C.border}` },
+    danger: { background: 'rgba(196,69,54,.10)', color: C.terra, border: 'rgba(196,69,54,.30)' },
+    sage:   { background: 'rgba(92,131,116,.12)', color: C.sage, border: `1px solid rgba(92,131,116,.30)` },
+  };
   return (
     <button
-      type={type}
-      disabled={disabled}
-      onClick={onClick}
-      className={
-        'w-full py-4 font-black rounded-2xl transition-all duration-200 ' +
-        'active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed ' +
-        'flex items-center justify-center gap-2 text-[13px] tracking-wide ' + s
-      }
-      style={variant === 'gold' ? { background: 'linear-gradient(135deg,#F5C46C,#B8893E)' } : variant === 'danger' ? { background:'rgba(196,69,54,.10)', border:'1px solid rgba(196,69,54,.3)', color:'#C44536' } : {}}>
+      type={type} disabled={disabled} onClick={onClick}
+      style={{
+        width: '100%', padding: '15px 20px', fontWeight: 800, borderRadius: 18,
+        fontSize: 13, letterSpacing: '0.02em', cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.35 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 8, transition: 'all .2s', border: 'none',
+        ...styles[variant],
+      }}>
       {children}
     </button>
   );
@@ -293,13 +289,50 @@ function PrimaryBtn({
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between px-0.5">
-        <label className="text-[9px] uppercase font-black tracking-[0.18em]" style={{ color:'rgba(245,196,108,0.80)' }}>{label}</label>
-        {hint && <span className="text-[9px] text-neutral-600">{hint}</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', paddingInline: 2 }}>
+        <label style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.18em', color: `${C.gold}90` }}>{label}</label>
+        {hint && <span style={{ fontSize: 9, color: C.muted }}>{hint}</span>}
       </div>
       {children}
     </div>
+  );
+}
+
+function InputBase({ placeholder, value, onChange, type = 'text', min, max, step, required, readOnly, mono, big, gold }: {
+  placeholder?: string; value: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  type?: string; min?: string; max?: string; step?: string; required?: boolean; readOnly?: boolean;
+  mono?: boolean; big?: boolean; gold?: boolean;
+}) {
+  return (
+    <input
+      type={type} placeholder={placeholder} value={value} onChange={onChange}
+      min={min} max={max} step={step} required={required} readOnly={readOnly}
+      style={{
+        width: '100%', background: C.card2, border: `1px solid ${C.border}`,
+        borderRadius: 16, padding: '14px 18px', outline: 'none', transition: 'border-color .2s',
+        fontSize: big ? 22 : 13, fontWeight: big ? 800 : 500,
+        color: gold ? C.gold : readOnly ? C.muted : '#E8E4DC',
+        fontFamily: mono ? 'monospace' : 'inherit',
+        letterSpacing: mono ? '0.1em' : 'inherit',
+      }}
+    />
+  );
+}
+
+function TextArea({ placeholder, value, onChange, rows = 3, required }: {
+  placeholder?: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  rows?: number; required?: boolean;
+}) {
+  return (
+    <textarea
+      placeholder={placeholder} value={value} onChange={onChange} rows={rows} required={required}
+      style={{
+        width: '100%', background: C.card2, border: `1px solid ${C.border}`,
+        borderRadius: 16, padding: '14px 18px', outline: 'none', resize: 'none',
+        fontSize: 13, color: '#C8C0B4', fontFamily: 'inherit', lineHeight: 1.6,
+      }}
+    />
   );
 }
 
@@ -307,89 +340,96 @@ function Stars({ value, onRate }: { value?: number; onRate?: (n: number) => void
   const [hov, setHov] = useState(0);
   const [sel, setSel] = useState(value || 0);
   return (
-    <div className="flex gap-1.5">
+    <div style={{ display: 'flex', gap: 8 }}>
       {[1, 2, 3, 4, 5].map(n => (
-        <button
-          key={n}
-          disabled={!onRate}
+        <button key={n} disabled={!onRate} type="button"
           onMouseEnter={() => onRate && setHov(n)}
           onMouseLeave={() => onRate && setHov(0)}
           onClick={() => { if (onRate) { setSel(n); onRate(n); } }}
-          className="transition-all hover:scale-110 disabled:cursor-default">
-          <Star
-            size={18}
-            className={n <= (hov || sel) ? 'text-[#F5C46C]' : 'text-[#3A3631]'}
-            fill={n <= (hov || sel) ? 'currentColor' : 'none'}
-          />
+          style={{ background: 'none', border: 'none', cursor: onRate ? 'pointer' : 'default', padding: 0 }}>
+          <Star size={22} style={{ color: n <= (hov || sel) ? C.gold : '#3A3631', fill: n <= (hov || sel) ? C.gold : 'none', transition: 'color .15s' }} />
         </button>
       ))}
     </div>
   );
 }
 
-function Accordion({ q, a }: { q: string; a: string }) {
-  const [open, setOpen] = useState(false);
+function DealTracker({ status }: { status: TxStatus }) {
+  const steps = ['Created', 'Accepted', 'Delivered', 'Released'];
+  const idx = status === 'PENDING' ? 0 : status === 'ACCEPTED' ? 1 : status === 'DELIVERED' ? 2 : status === 'RELEASED' ? 3 : 0;
   return (
-    <div className='rounded-2xl overflow-hidden' style={{ background:'#1C1A17', border:`1px solid ${open ? 'rgba(245,196,108,0.25)' : 'rgba(245,196,108,0.10)'}` }}>
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-5 py-4 gap-3 text-left">
-        <span className="text-[12px] font-black text-neutral-200 leading-snug">{q}</span>
-        <span className={'w-6 h-6 rounded-lg flex items-center justify-center text-sm transition-transform flex-shrink-0 ' +
-          (open ? 'bg-amber-500/15 text-amber-400 rotate-45' : 'bg-white/5 text-neutral-500')}>+</span>
-      </button>
-      {open && <div className="px-5 pb-4 text-[11px] text-neutral-500 leading-relaxed border-t border-white/5 pt-3">{a}</div>}
+    <div style={{ background: C.card2, border: `1px solid ${C.border}`, borderRadius: 16, padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {steps.map((step, i) => (
+          <React.Fragment key={step}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 800,
+                background: i < idx ? C.sage : i === idx ? C.gold : C.card,
+                color: i < idx ? '#0A0908' : i === idx ? C.card : C.muted,
+                boxShadow: i === idx ? `0 0 0 4px rgba(245,196,108,.18)` : 'none',
+                border: i > idx ? `1px solid ${C.border}` : 'none',
+              }}>
+                {i < idx ? '✓' : i + 1}
+              </div>
+              <span style={{ fontSize: 8, fontWeight: 700, color: i === idx ? C.gold : i < idx ? C.sage : C.muted }}>{step}</span>
+            </div>
+            {i < steps.length - 1 && (
+              <div style={{ flex: 1, height: 2, borderRadius: 99, margin: '0 4px 14px', background: i < idx ? C.sage : C.border }} />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STATIC CONTENT
+// LANDING PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 const STEPS = [
-  { n: '01', who: 'Buyer',  color: '#f59e0b', title: 'Create Escrow',
-    body: 'Buyer pays via Pi Browser. Receives a private Buyer Key (keep it!) and a Seller Key to share with the seller.' },
-  { n: '02', who: 'Seller', color: '#38bdf8', title: 'Accept Deal',
-    body: 'Seller enters the Escrow Code and their Seller Key. Reviews terms and accepts. Funds stay locked.' },
-  { n: '03', who: 'Seller', color: '#38bdf8', title: 'Confirm Delivery',
-    body: 'Seller ships the item or completes the service, then presses Confirm Delivery.' },
-  { n: '04', who: 'Buyer',  color: '#22c55e', title: 'Release or Dispute',
-    body: '"Received" + Buyer Key → funds released instantly to seller.\n"Not Received" → funds freeze and a dispute opens.' },
-  { n: '05', who: 'System', color: '#a78bfa', title: 'Auto-Resolution',
-    body: 'If buyer ignores delivery for 15 days, funds auto-release to seller. Disputes are resolved by 3 neutral judges (2/3 majority).' },
-];
-
-const CATS = [
-  { e: '📱', t: 'Electronics',     d: 'Phones, laptops, cameras',      tags: ['Phones', 'Laptops', 'Cameras']  },
-  { e: '💎', t: 'Jewelry & Watches', d: 'Verify before releasing',      tags: ['Gold', 'Watches', 'Diamonds']   },
-  { e: '🛍️', t: 'General Goods',   d: 'Clothing, furniture, etc.',     tags: ['Clothing', 'Furniture', 'Sports']},
-  { e: '💻', t: 'Digital Services', d: 'Design, dev, content',          tags: ['Design', 'Dev', 'Content']      },
-  { e: '🏗️', t: 'Milestone Projects', d: 'Pay per milestone',          tags: ['Websites', 'Apps', 'Projects']  },
-  { e: '🎮', t: 'Gaming & Accounts', d: 'Accounts, items, keys',        tags: ['Accounts', 'Items', 'Codes']    },
+  { n: '01', who: 'Buyer',  color: C.gold,   title: 'Create Escrow',    body: 'Buyer pays via Pi Browser. Gets a private Buyer Key and a Seller Key to share.' },
+  { n: '02', who: 'Seller', color: C.sky,    title: 'Accept Deal',      body: 'Seller enters Escrow Code + Seller Key. Reviews terms and accepts. Funds stay locked.' },
+  { n: '03', who: 'Seller', color: C.sky,    title: 'Confirm Delivery', body: 'Seller delivers the goods or service, then confirms.' },
+  { n: '04', who: 'Buyer',  color: C.sage,   title: 'Release or Dispute', body: '"Received" + Buyer Key → funds released.\n"Not Received" → funds freeze, dispute opens.' },
+  { n: '05', who: 'System', color: C.violet, title: 'Auto-Resolution',  body: '15 days silence = auto-release. Disputes resolved by admin.' },
 ];
 
 const FAQS = [
-  { q: 'Are my funds safe if the website is hacked?',
-    a: 'Yes. Funds live on the Pi blockchain — not on our servers. Even if the site is compromised, nobody can move funds without your Buyer Key.' },
-  { q: 'What is the difference between Buyer Key and Seller Key?',
-    a: 'Buyer Key is yours alone — used to release funds or confirm receipt. Seller Key belongs to the seller — used to accept the deal. Neither party can act without their own key.' },
-  { q: 'What happens if I lose my Buyer Key?',
-    a: 'The key is shown only once. Save it immediately. If lost, contact support with proof of ownership and we will assist through the dispute resolution system.' },
-  { q: 'What does PTrust Oracle charge?',
-    a: 'Only 0.1% of the transaction amount, deducted automatically at release. No hidden fees, no setup costs.' },
-  { q: 'Who selects the judges?',
-    a: '3 judges are randomly selected from verified Pi pioneers with full KYC and no relation to the deal. Majority vote (2 of 3) decides the outcome.' },
-  { q: 'What if the seller never delivers?',
-    a: 'Open a dispute after the seller confirms delivery. Submit evidence within 15 days. Judges review and rule. If seller wins by default (no buyer evidence), funds auto-release after 15 days.' },
+  { q: 'Are my funds safe if the website is hacked?',              a: 'Yes. Funds live on the Pi blockchain. Nobody can move them without your Buyer Key.' },
+  { q: 'What is the difference between Buyer Key and Seller Key?', a: 'Buyer Key releases funds or opens disputes. Seller Key accepts the deal. Keep yours private.' },
+  { q: 'What happens if I lose my Buyer Key?',                     a: 'The key is shown only once. Save it immediately. Contact support if lost.' },
+  { q: 'What does PTrust Oracle charge?',                          a: 'Only 0.1% of the transaction amount. No hidden fees.' },
+  { q: 'What if the seller never delivers?',                       a: 'Open a dispute. Admin reviews evidence and decides within 15 days.' },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LANDING PAGE (not logged in)
-// ─────────────────────────────────────────────────────────────────────────────
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: C.card2, border: `1px solid ${open ? `${C.gold}30` : C.border}`, borderRadius: 16, overflow: 'hidden' }}>
+      <button onClick={() => setOpen(!open)} type="button"
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, gap: 12, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#E8E4DC', lineHeight: 1.4 }}>{q}</span>
+        <span style={{
+          width: 24, height: 24, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, flexShrink: 0, transition: 'transform .2s',
+          background: open ? `${C.gold}20` : 'rgba(255,255,255,.04)',
+          color: open ? C.gold : C.muted,
+          transform: open ? 'rotate(45deg)' : 'none',
+        }}>+</span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 16px 16px', fontSize: 11, color: C.muted, lineHeight: 1.7, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>{a}</div>
+      )}
+    </div>
+  );
+}
+
 function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }) {
   const [section, setSection] = useState<string | null>(null);
-
-  // ── Pi Price Ticker ──
-  const [piPrice, setPiPrice]         = useState<number | null>(null);
-  const [priceSource, setPriceSource] = useState<'Kraken' | 'CoinGecko'>('Kraken');
+  const [piPrice, setPiPrice] = useState<number | null>(null);
+  const [priceSource, setPriceSource] = useState('Kraken');
   const [priceLoading, setPriceLoading] = useState(true);
 
   useEffect(() => {
@@ -397,56 +437,40 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
     async function fetchPrice() {
       setPriceLoading(true);
       try {
-        // Primary: Kraken
         const res  = await fetch('https://api.kraken.com/0/public/Ticker?pair=PIUSD');
         const data = await res.json();
         const ticker = data?.result?.PIUSD ?? data?.result?.['PI/USD'];
         const price  = ticker ? parseFloat(ticker.c[0]) : NaN;
-        if (!cancelled && !isNaN(price)) {
-          setPiPrice(price);
-          setPriceSource('Kraken');
-          return;
-        }
-      } catch { /* fall through */ }
-      try {
-        // Fallback: CoinGecko
-        const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=pi-network&vs_currencies=usd');
-        const data = await res.json();
-        const price = data?.['pi-network']?.usd;
-        if (!cancelled && price) {
-          setPiPrice(price);
-          setPriceSource('CoinGecko');
-        }
-      } catch { /* give up */ }
-      if (!cancelled) setPriceLoading(false);
+        if (!cancelled && !isNaN(price)) { setPiPrice(price); setPriceSource('Kraken'); setPriceLoading(false); return; }
+        throw new Error('no price');
+      } catch {
+        try {
+          const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=pi-network&vs_currencies=usd');
+          const data = await res.json();
+          if (!cancelled) { setPiPrice(data?.['pi-network']?.usd || null); setPriceSource('CoinGecko'); }
+        } catch { if (!cancelled) setPiPrice(null); }
+        if (!cancelled) setPriceLoading(false);
+      }
     }
-    fetchPrice().finally(() => { if (!cancelled) setPriceLoading(false); });
-    const interval = setInterval(fetchPrice, 60_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    fetchPrice();
+    const iv = setInterval(fetchPrice, 60_000);
+    return () => { cancelled = true; clearInterval(iv); };
   }, []);
-
 
   const sections = [
     {
-      key: 'how',
-      icon: '🔄',
-      title: 'How It Works',
-      sub: '5 steps that protect every deal',
+      key: 'how', icon: '🔄', title: 'How It Works', sub: '5 steps that protect every deal',
       content: (
         <div>
           {STEPS.map((s, i) => (
-            <div key={i} className={'flex gap-4 items-start py-3.5 ' + (i < STEPS.length - 1 ? 'border-b border-white/4' : '')}>
-              <div className="w-9 h-9 rounded-xl border flex items-center justify-center flex-shrink-0 text-[10px] font-black"
-                style={{ background: s.color + '12', borderColor: s.color + '30', color: s.color }}>
-                {s.n}
-              </div>
-              <div className="flex-1 pt-0.5">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[12px] font-black text-white">{s.title}</span>
-                  <span className="text-[9px] font-black px-2 py-0.5 rounded-full"
-                    style={{ background: s.color + '12', color: s.color }}>{s.who}</span>
+            <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 0', borderBottom: i < STEPS.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${s.color}30`, background: `${s.color}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 10, fontWeight: 800, color: s.color }}>{s.n}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#E8E4DC' }}>{s.title}</span>
+                  <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 99, background: `${s.color}12`, color: s.color }}>{s.who}</span>
                 </div>
-                <p className="text-[11px] text-neutral-500 leading-relaxed whitespace-pre-line">{s.body}</p>
+                <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, whiteSpace: 'pre-line', margin: 0 }}>{s.body}</p>
               </div>
             </div>
           ))}
@@ -454,296 +478,144 @@ function Landing({ onLogin, loading }: { onLogin: () => void; loading: boolean }
       ),
     },
     {
-      key: 'use',
-      icon: '🛍️',
-      title: 'What Can I Secure?',
-      sub: '6 supported categories',
-      content: (
-        <div className="space-y-2">
-          {CATS.map((c, i) => (
-            <div key={i} className="flex items-start gap-3 p-3.5 rounded-xl bg-white/2 border border-white/4">
-              <span className="text-2xl flex-shrink-0">{c.e}</span>
-              <div>
-                <div className="text-[12px] font-black text-white">{c.t}</div>
-                <div className="text-[10px] text-neutral-600 mt-0.5">{c.d}</div>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {c.tags.map(t => (
-                    <span key={t} className="text-[9px] px-2 py-0.5 rounded-full bg-white/4 border border-white/6 text-neutral-600">{t}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-    {
-      key: 'dispute',
-      icon: '⚖️',
-      title: 'Dispute System',
-      sub: '3 neutral judges · 15-day window · guaranteed resolution',
-      content: (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { e: '❌', l: 'Not Received',   sub: 'Instant freeze', c: '#ef4444' },
-              { e: '📋', l: '15-Day Evidence', sub: 'Both parties',   c: '#f59e0b' },
-              { e: '⚖️', l: 'Secret Vote',    sub: '2/3 decides',    c: '#22c55e' },
-            ].map(b => (
-              <div key={b.l} className="rounded-xl p-3 text-center"
-                style={{ background: b.c + '0d', border: '1px solid ' + b.c + '25' }}>
-                <div className="text-xl mb-1">{b.e}</div>
-                <div className="text-[10px] font-black" style={{ color: b.c }}>{b.l}</div>
-                <div className="text-[9px] text-neutral-600 mt-0.5">{b.sub}</div>
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl p-3.5 bg-amber-500/4 border border-amber-500/15">
-              <div className="text-[11px] font-black text-amber-400 mb-2">Buyer</div>
-              {['Funds locked before delivery', 'Buyer Key known only to you', '"Not Received" freezes instantly', '15 days to submit proof'].map(t => (
-                <div key={t} className="flex items-start gap-1.5 text-[10px] text-neutral-600 mb-1">
-                  <span className="text-emerald-500 flex-shrink-0">✓</span>{t}
-                </div>
-              ))}
-            </div>
-            <div className="rounded-xl p-3.5 bg-sky-500/4 border border-sky-500/15">
-              <div className="text-[11px] font-black text-sky-400 mb-2">Seller</div>
-              {['Funds confirmed before shipment', 'Seller Key proves acceptance', '15-day silence = auto-release', 'Judge protection against fraud'].map(t => (
-                <div key={t} className="flex items-start gap-1.5 text-[10px] text-neutral-600 mb-1">
-                  <span className="text-emerald-500 flex-shrink-0">✓</span>{t}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'faq',
-      icon: '❓',
-      title: 'FAQ',
-      sub: 'Common questions answered',
-      content: <div className="space-y-2">{FAQS.map((f, i) => <Accordion key={i} q={f.q} a={f.a} />)}</div>,
+      key: 'faq', icon: '❓', title: 'FAQ', sub: 'Common questions answered',
+      content: <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{FAQS.map((f, i) => <FaqItem key={i} q={f.q} a={f.a} />)}</div>,
     },
   ];
 
   return (
-    <main className="min-h-screen bg-[#0A0908] text-white">
-      {/* Background glow */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-amber-500/[0.04] rounded-full blur-[100px]" />
-        <div className="absolute inset-0 opacity-[0.012]"
-          style={{ backgroundImage: 'linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)', backgroundSize: '60px 60px' }} />
-      </div>
-
-      <div className="relative max-w-sm mx-auto px-5 pb-16">
+    <main style={{ minHeight: '100vh', background: `radial-gradient(ellipse at 50% -20%, rgba(245,196,108,.07), transparent 55%), ${C.bg}`, color: '#E8E4DC' }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }`}</style>
+      <div style={{ maxWidth: 400, margin: '0 auto', padding: '0 20px 80px' }}>
         {/* Hero */}
-        <div className="flex flex-col items-center text-center pt-14 pb-10 space-y-5">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/4 border border-white/8 text-neutral-500 text-[9px] font-black tracking-[0.2em] uppercase">
-            <ShieldCheck size={11} className="text-amber-400" /> Pi Network Mainnet · Secured
-          </div>
-
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', paddingTop: 60, paddingBottom: 32, gap: 18 }}>
+          <Seal size={76} />
           <div>
-            <h1 className="text-[76px] font-black tracking-[-0.04em] leading-none" style={{ fontFamily: "'Fraunces', serif" }}>
-              P<span className="text-transparent" style={{ WebkitTextStroke: '2.5px #f59e0b' }}>TRUST</span>
+            <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 68, lineHeight: 1, letterSpacing: '-0.03em', margin: 0 }}>
+              P<span style={{ color: C.gold }}>TRUST</span>
             </h1>
-            <p className="text-[10px] tracking-[0.6em] text-neutral-600 uppercase mt-1">Oracle · Escrow Protocol</p>
+            <p style={{ fontSize: 10, letterSpacing: '0.45em', textTransform: 'uppercase', color: C.muted, marginTop: 6 }}>Oracle · Escrow Protocol</p>
           </div>
-
-          <p className="text-neutral-400 text-sm leading-relaxed max-w-[280px]">
-            Lock funds · verify delivery · release with confidence.<br />
-            The most secure escrow protocol on Pi Network.
+          <p style={{ fontSize: 14, lineHeight: 1.6, color: '#C8C0B4', maxWidth: 260, margin: 0 }}>
+            Lock funds · verify delivery · release with confidence.
           </p>
 
-          {/* Stats bar */}
-          <div className="grid grid-cols-3 gap-2 w-full">
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, width: '100%' }}>
             {[{ v: '0%', l: 'Fraud Rate' }, { v: '0.1%', l: 'Platform Fee' }, { v: '24/7', l: 'Active' }].map(s => (
-              <div key={s.l} className="bg-[#1C1A17] border border-white/6 rounded-xl py-3.5 text-center">
-                <div className="text-xl font-black text-amber-400">{s.v}</div>
-                <div className="text-[9px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
+              <div key={s.l} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '14px 8px', textAlign: 'center' }}>
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 20, color: C.gold }}>{s.v}</div>
+                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, marginTop: 3 }}>{s.l}</div>
               </div>
             ))}
           </div>
 
-          {/* ── Pi Price Ticker ── */}
-          <div className="w-full rounded-2xl border border-amber-500/20 bg-[#1C1A17] overflow-hidden relative">
-            {/* subtle gradient glow */}
-            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.06] via-transparent to-transparent pointer-events-none" />
-            <div className="relative flex items-center justify-between px-5 py-4">
-              {/* Left: logo + price */}
-              <div className="flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center flex-shrink-0 shadow-[0_0_18px_rgba(245,158,11,0.18)]">
-                  <span className="text-2xl font-black text-amber-400" style={{ fontFamily: "'Fraunces', serif", lineHeight: 1 }}>π</span>
-                </div>
-                <div>
-                  <div className="text-[9px] uppercase font-black tracking-[0.2em] text-neutral-600 mb-0.5">Pi / USD</div>
-                  {priceLoading ? (
-                    <div className="h-7 w-24 rounded-lg bg-white/6 animate-pulse" />
-                  ) : (
-                    <div className="text-2xl font-black text-amber-400 tracking-tight">
-                      {piPrice !== null ? `$${piPrice.toFixed(4)}` : '—'}
-                    </div>
-                  )}
-                </div>
+          {/* Price card */}
+          <div style={{ width: '100%', padding: '14px 16px', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: `linear-gradient(135deg, ${C.gold}10, ${C.gold}05)`, border: `1px solid ${C.gold}20` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Seal size={38} />
+              <div>
+                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, color: C.muted }}>Pi / USD · {priceSource}</div>
+                {priceLoading
+                  ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}><Spin /><span style={{ fontSize: 11, color: C.muted }}>Fetching…</span></div>
+                  : piPrice
+                    ? <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 22, color: C.gold, marginTop: 2 }}>{'$' + piPrice.toFixed(4)}</div>
+                    : <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Unavailable</div>
+                }
               </div>
-              {/* Right: live badge */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
-                </span>
-                <span className="text-[9px] font-black text-amber-400 tracking-wider">
-                  Live · {priceSource}
-                </span>
-              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 800, color: C.sage }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.sage, animation: 'pulse 2s infinite' }} />LIVE
             </div>
           </div>
 
-          {/* ── Pi Consensus Value ── */}
-          <div className="w-full rounded-2xl border border-violet-500/20 bg-[#1C1A17] overflow-hidden relative">
-            {/* gradient glow */}
-            <div className="absolute inset-0 bg-gradient-to-br from-violet-950/20 via-transparent to-amber-950/20 pointer-events-none" />
-            <div className="relative flex items-center gap-4 px-5 py-4">
-              {/* Left: π icon tile */}
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: 'linear-gradient(135deg,#7c3aed33,#f59e0b22)', border: '1px solid #7c3aed40', boxShadow: '0 0 18px rgba(124,58,237,0.15)' }}>
-                <span className="text-2xl font-black" style={{ fontFamily: "'Fraunces', serif", lineHeight: 1, background: 'linear-gradient(135deg,#a78bfa,#fbbf24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>π</span>
+          {/* GCV */}
+          <div style={{ width: '100%', padding: '14px 16px', borderRadius: 20, background: 'rgba(155,138,196,.10)', border: '1px solid rgba(155,138,196,.20)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, color: 'rgba(155,138,196,.6)' }}>Pi Consensus Value · GCV</div>
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 18, color: '#C4B8F0', marginTop: 4 }}>1 π = 314,159 GCV</div>
+                <div style={{ fontSize: 9, color: C.muted, marginTop: 3 }}>Community Consensus · Global Currency Value</div>
               </div>
-              {/* Right: value block */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[9px] uppercase font-black tracking-[0.2em] text-neutral-600">Pi Consensus Value</span>
-                  <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-400 tracking-wider">GCV</span>
-                </div>
-                <div className="text-xl font-black tracking-tight" style={{ background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                  1 π = 314,159 GCV
-                </div>
-                <div className="text-[9px] text-neutral-600 mt-0.5">Community Consensus · Global Currency Value</div>
-              </div>
-            </div>
-            <div className="px-5 pb-3">
-              <p className="text-[9px] text-neutral-700 leading-relaxed">Based on Pi Network community consensus</p>
+              <span style={{ fontSize: 28 }}>⚖️</span>
             </div>
           </div>
 
-          <button
-            onClick={onLogin}
-            disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-400 text-black font-black rounded-xl transition-all active:scale-[0.98] hover:from-amber-400 shadow-[0_12px_40px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2.5 text-sm disabled:opacity-50">
-            <Wallet size={17} />
-            {loading ? 'Authenticating…' : 'Connect Pi Wallet'}
-            {!loading && <ArrowRight size={15} />}
+          {/* CTA */}
+          <button onClick={onLogin} disabled={loading} type="button"
+            style={{
+              width: '100%', padding: '18px 24px', fontWeight: 800, fontSize: 14, borderRadius: 20, border: 'none',
+              background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.card,
+              boxShadow: `0 12px 40px rgba(245,196,108,.30)`, cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, transition: 'all .2s',
+            }}>
+            <span style={{ fontSize: 20 }}>π</span>
+            {loading ? 'Connecting…' : 'Connect Pi Wallet'}
+            {!loading && <ArrowRight size={16} />}
           </button>
 
-          <div className="flex items-center justify-center gap-5">
-            {[
-              { I: Shield, t: 'Blockchain Protected' },
-              { I: Lock,   t: 'Your Key Only'         },
-              { I: Users,  t: 'Neutral Judges'         },
-            ].map(({ I, t }) => (
-              <div key={t} className="flex items-center gap-1.5 text-[10px] text-neutral-600">
-                <I size={10} className="text-amber-500/50 flex-shrink-0" />{t}
+          {/* Trust pills */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+            {[{ i: '🔒', t: 'Blockchain' }, { i: '🔑', t: 'Your Key Only' }, { i: '⚖️', t: 'Fair Dispute' }].map(({ i, t }) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: C.muted }}>
+                <span>{i}</span>{t}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Expandable sections */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 px-1 pb-1">
-            <div className="h-px flex-1 bg-white/6" />
-            <span className="text-[9px] font-black tracking-[0.25em] uppercase text-neutral-700">Learn More</span>
-            <div className="h-px flex-1 bg-white/6" />
-          </div>
+        {/* Sections */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {sections.map(sec => (
-            <div key={sec.key}
-              className={'rounded-2xl border overflow-hidden transition-all bg-[#1C1A17] ' + (section === sec.key ? 'border-amber-500/20' : 'border-white/6')}>
-              <button
-                onClick={() => setSection(section === sec.key ? null : sec.key)}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/2 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
-                    <span className="text-base">{sec.icon}</span>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-[12px] font-black text-white">{sec.title}</div>
-                    <div className="text-[10px] text-neutral-600">{sec.sub}</div>
+            <div key={sec.key} style={{ background: C.card, border: `1px solid ${section === sec.key ? `${C.gold}30` : C.border}`, borderRadius: 20, overflow: 'hidden' }}>
+              <button onClick={() => setSection(section === sec.key ? null : sec.key)} type="button"
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: 'none', border: 'none', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 12, background: `${C.gold}12`, border: `1px solid ${C.gold}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>{sec.icon}</div>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#E8E4DC' }}>{sec.title}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{sec.sub}</div>
                   </div>
                 </div>
-                <ChevronDown size={14} className={'text-neutral-600 transition-transform duration-200 ' + (section === sec.key ? 'rotate-180' : '')} />
+                <ChevronDown size={14} style={{ color: C.muted, transform: section === sec.key ? 'rotate(180deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }} />
               </button>
               {section === sec.key && (
-                <div className="border-t border-white/5 px-4 pb-5 pt-4">{sec.content}</div>
+                <div style={{ padding: '0 16px 20px', borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ paddingTop: 16 }}>{sec.content}</div>
+                </div>
               )}
             </div>
           ))}
         </div>
 
-        {/* Bottom CTA */}
-        <div className="mt-8 space-y-4">
-          <button
-            onClick={onLogin}
-            disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-400 text-black font-black rounded-xl active:scale-[0.98] shadow-[0_12px_40px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2.5 text-sm disabled:opacity-50">
-            <Wallet size={17} />
-            {loading ? 'Authenticating…' : 'Get Started — Connect Pi Wallet'}
-          </button>
-          <div className="text-center space-y-2">
-            <p className="text-[10px] text-neutral-700">
-              Support: <a href="mailto:Riahig45@gmail.com" style={{ color:'rgba(245,196,108,0.6)' }}>Riahig45@gmail.com</a>
-            </p>
-            <div className="flex items-center justify-center gap-3">
-              <a href="/privacy" className="text-[10px]" style={{ color:'rgba(138,131,120,0.5)' }}>Privacy Policy</a>
-              <span style={{ color:'rgba(138,131,120,0.3)' }}>·</span>
-              <a href="/terms" className="text-[10px]" style={{ color:'rgba(138,131,120,0.5)' }}>Terms of Service</a>
-            </div>
+        {/* Footer */}
+        <div style={{ marginTop: 28, textAlign: 'center' }}>
+          <p style={{ fontSize: 10, color: `${C.muted}60`, margin: '0 0 8px' }}>
+            Support: <a href="mailto:Riahig45@gmail.com" style={{ color: `${C.gold}80`, textDecoration: 'none' }}>Riahig45@gmail.com</a>
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <a href="/privacy" style={{ fontSize: 10, color: `${C.muted}50`, textDecoration: 'none' }}>Privacy Policy</a>
+            <span style={{ color: `${C.muted}30`, fontSize: 10 }}>·</span>
+            <a href="/terms" style={{ fontSize: 10, color: `${C.muted}50`, textDecoration: 'none' }}>Terms of Service</a>
           </div>
         </div>
       </div>
     </main>
   );
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // BUYER TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function BuyerTab({ user }: { user: PiUser }) {
-  // Create escrow state
-  const [showKycModal, setShowKycModal] = useState(false);
-  const [kycConfirmed, setKycConfirmed] = useState(false);
   const [sellerWallet, setSellerWallet] = useState('');
-  const [sellerTrustScore, setSellerTrustScore] = useState<number | null>(null);
   const [amount, setAmount]             = useState('');
   const [desc, setDesc]                 = useState('');
-
-  useEffect(() => {
-    if (!sellerWallet || sellerWallet.length < 10) {
-      setSellerTrustScore(null);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(sellerWallet));
-        const data = await res.json();
-        if (data.success && data.transactions.length > 0) {
-          setSellerTrustScore(calculateTrustScore(data.transactions).score);
-        } else {
-          setSellerTrustScore(null);
-        }
-      } catch {
-        setSellerTrustScore(null);
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [sellerWallet]);
   const [creating, setCreating]         = useState(false);
   const [createErr, setCreateErr]       = useState<string | null>(null);
   const [result, setResult]             = useState<EscrowResult | null>(null);
   const [showBK, setShowBK]             = useState(false);
   const [showSK, setShowSK]             = useState(false);
 
-  // Release state
   const [relCode, setRelCode]       = useState('');
   const [relKey, setRelKey]         = useState('');
   const [relConfirm, setRelConfirm] = useState('');
@@ -751,333 +623,303 @@ function BuyerTab({ user }: { user: PiUser }) {
   const [relErr, setRelErr]         = useState<string | null>(null);
   const [relOk, setRelOk]           = useState<string | null>(null);
 
-  // Dispute state
   const [disCode, setDisCode]       = useState('');
   const [disReason, setDisReason]   = useState('');
   const [disLoading, setDisLoading] = useState(false);
   const [disErr, setDisErr]         = useState<string | null>(null);
   const [disOk, setDisOk]           = useState<string | null>(null);
 
-  // Evidence state
-  const [evCode, setEvCode]       = useState('');
-  const [evText, setEvText]       = useState('');
+  const [evCode, setEvCode]     = useState('');
+  const [evText, setEvText]     = useState('');
   const [evLoading, setEvLoading] = useState(false);
-  const [evErr, setEvErr]         = useState<string | null>(null);
-  const [evOk, setEvOk]           = useState(false);
+  const [evErr, setEvErr]       = useState<string | null>(null);
+  const [evOk, setEvOk]         = useState(false);
 
-  const fee = useMemo(() => {
-    const v = parseFloat(amount);
-    return isNaN(v) || v <= 0 ? 0 : v * 0.001;
-  }, [amount]);
+  const [showKyc, setShowKyc]       = useState(false);
+  const [kycConfirmed, setKycConfirmed] = useState(false);
 
-  // Create escrow via Pi.createPayment
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (parseFloat(amount) >= 100 && !kycConfirmed) {
-      setShowKycModal(true);
-      return;
-    }
+  const fee = useMemo(() => { const v = parseFloat(amount); return isNaN(v) || v <= 0 ? 0 : v * 0.001; }, [amount]);
+
+  const doCreate = async () => {
     setCreating(true); setCreateErr(null); setResult(null);
     try {
       const win = window as any;
       if (!win.Pi) throw new Error('Open this app in Pi Browser');
-
       const total = parseFloat(amount) + fee;
       let pending: EscrowResult | null = null;
-
       await new Promise<void>((resolve, reject) => {
         win.Pi.createPayment(
-          {
-            amount: total,
-            memo:   ('PTrust: ' + (desc || 'Escrow')).substring(0, 28),
-            metadata: { seller: sellerWallet, buyer: user.username },
-          },
+          { amount: total, memo: ('PTrust: ' + (desc || 'Escrow')).substring(0, 28), metadata: { seller: sellerWallet, buyer: user.username } },
           {
             onReadyForServerApproval: async (paymentId: string) => {
               try {
-                const res = await apiFetch('/api/escrow/create', {
-                  paymentId,
-                  sellerWallet,
-                  amount:      parseFloat(amount),
-                  fee,
-                  description: desc || 'No description',
-                  buyerUsername: user.username,
-                });
-                pending = {
-                  transactionNumber: res.transactionNumber,
-                  escrowCode:        res.escrowCode,
-                  buyerKey:          res.buyerKey,
-                  sellerKey:         res.sellerKey,
-                };
-              } catch (err: any) { reject(err); }
+                const res = await apiFetch('/api/escrow/create', { paymentId, sellerWallet, amount: parseFloat(amount), fee, description: desc || 'No description', buyerUsername: user.username });
+                pending = { transactionNumber: res.transactionNumber, escrowCode: res.escrowCode, buyerKey: res.buyerKey, sellerKey: res.sellerKey };
+              } catch (e: any) { reject(e); }
             },
             onReadyForServerCompletion: async (paymentId: string, txid: string) => {
               try {
                 await apiFetch('/api/escrow/finalize', { paymentId, txid });
-                setResult(pending);
-                setAmount(''); setSellerWallet(''); setDesc('');
-                resolve();
-              } catch (err: any) { reject(err); }
+                setResult(pending); setAmount(''); setSellerWallet(''); setDesc(''); resolve();
+              } catch (e: any) { reject(e); }
             },
             onCancel: () => reject(new Error('Payment cancelled')),
-            onError:  (err: Error) => reject(err),
+            onError:  (e: Error) => reject(e),
           }
         );
       });
-    } catch (err: any) {
-      setCreateErr(err.message);
-    } finally {
-      setCreating(false);
-    }
+    } catch (e: any) { setCreateErr(e.message); }
+    finally { setCreating(false); }
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (parseFloat(amount) >= 100 && !kycConfirmed) { setShowKyc(true); return; }
+    doCreate();
   };
 
   const handleRelease = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRelLoading(true); setRelErr(null); setRelOk(null);
+    e.preventDefault(); setRelLoading(true); setRelErr(null); setRelOk(null);
     try {
-      await apiFetch('/api/escrow/release', {
-        escrowCode:  relCode.toUpperCase(),
-        buyerKey:    relKey,
-        confirmText: relConfirm,
-        buyerUsername: user.username,
-      });
-      setRelOk('Funds released successfully! They are on their way to the seller.');
-      setRelCode(''); setRelKey(''); setRelConfirm('');
-    } catch (err: any) { setRelErr(err.message); }
+      await apiFetch('/api/escrow/release', { escrowCode: relCode.toUpperCase(), buyerKey: relKey, confirmText: relConfirm, buyerUsername: user.username });
+      setRelOk('Funds released successfully!'); setRelCode(''); setRelKey(''); setRelConfirm('');
+    } catch (e: any) { setRelErr(e.message); }
     finally { setRelLoading(false); }
   };
 
   const handleDispute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setDisLoading(true); setDisErr(null); setDisOk(null);
+    e.preventDefault(); setDisLoading(true); setDisErr(null); setDisOk(null);
     try {
-      const res = await apiFetch('/api/escrow/dispute', {
-        escrowCode:   disCode.toUpperCase(),
-        buyerUsername: user.username,
-        reason:        disReason,
-      });
-      setDisOk('Dispute opened. Funds frozen. Evidence deadline: ' +
-        new Date(res.evidenceDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      const res = await apiFetch('/api/escrow/dispute', { escrowCode: disCode.toUpperCase(), buyerUsername: user.username, reason: disReason });
+      setDisOk('Dispute opened. Evidence deadline: ' + new Date(res.evidenceDeadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
       setDisCode(''); setDisReason('');
-    } catch (err: any) { setDisErr(err.message); }
+    } catch (e: any) { setDisErr(e.message); }
     finally { setDisLoading(false); }
   };
 
   const handleEvidence = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setEvLoading(true); setEvErr(null); setEvOk(false);
+    e.preventDefault(); setEvLoading(true); setEvErr(null); setEvOk(false);
     try {
-      await apiFetch('/api/escrow/evidence', {
-        escrowCode: evCode.toUpperCase(),
-        username:   user.username,
-        content:    evText,
-      });
+      await apiFetch('/api/escrow/evidence', { escrowCode: evCode.toUpperCase(), username: user.username, content: evText });
       setEvOk(true); setEvText('');
-    } catch (err: any) { setEvErr(err.message); }
+    } catch (e: any) { setEvErr(e.message); }
     finally { setEvLoading(false); }
   };
 
+  const s = { display: 'flex', flexDirection: 'column' as const, gap: 12 };
+
   return (
-    <div className="space-y-4">
-
-      {/* ── Create Escrow ── */}
-      {!result ? (
-        <Card className="p-6">
-          <SecHead Icon={Zap} title="Create Escrow" sub="You pay via Pi Browser. Each party gets their own key." />
-          <form onSubmit={handleCreate} className="space-y-4">
-            <Field label="Seller Wallet Address">
-              <input required placeholder="G…" value={sellerWallet}
-                onChange={e => setSellerWallet(e.target.value)}
-                className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
-            </Field>
-
-            {sellerTrustScore !== null && sellerTrustScore < 30 && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 mt-2">
-                <AlertTriangle size={16} className="flex-shrink-0" />
-                <p className="text-[11px] font-black">⚠️ Warning: This seller has a low trust score. Proceed with caution.</p>
+    <div style={s}>
+      {/* KYC Modal */}
+      {showKyc && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'rgba(10,9,8,.88)', backdropFilter: 'blur(8px)' }}>
+          <div style={{ maxWidth: 360, width: '100%', background: C.card, border: `1.5px solid ${C.gold}40`, borderRadius: 28, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Seal size={42} />
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13, color: C.gold }}>Large Transaction Warning</div>
+                <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Transactions over 100 Pi require KYC</div>
               </div>
-            )}
+            </div>
+            <p style={{ fontSize: 12, lineHeight: 1.7, color: '#C8C0B4', margin: 0 }}>Both parties must have completed KYC verification on Pi Network to proceed with this transaction.</p>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={kycConfirmed} onChange={e => setKycConfirmed(e.target.checked)} style={{ marginTop: 2, accentColor: C.gold }} />
+              <span style={{ fontSize: 11, color: '#C8C0B4', lineHeight: 1.5 }}>I confirm both parties have completed KYC on Pi Network</span>
+            </label>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowKyc(false)} type="button"
+                style={{ flex: 1, padding: '12px', borderRadius: 16, fontWeight: 800, fontSize: 12, background: C.card2, color: C.muted, border: 'none', cursor: 'pointer' }}>Cancel</button>
+              <button disabled={!kycConfirmed} onClick={() => { setShowKyc(false); doCreate(); }} type="button"
+                style={{ flex: 1, padding: '12px', borderRadius: 16, fontWeight: 800, fontSize: 12, background: `linear-gradient(135deg,${C.gold},${C.goldD})`, color: C.card, border: 'none', cursor: kycConfirmed ? 'pointer' : 'not-allowed', opacity: kycConfirmed ? 1 : 0.35 }}>Proceed</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Amount (Pi)">
-                <input required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="0.000000"
-                  value={amount} onChange={e => setAmount(e.target.value)}
-                  className="w-full rounded-2xl py-4 px-5 outline-none font-black text-xl transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
+      {/* Create Escrow */}
+      {!result ? (
+        <Card style={{ boxShadow: `0 0 0 1px ${C.gold}15, 0 8px 32px rgba(0,0,0,.4)` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.gold}12`, border: `1px solid ${C.gold}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Zap size={18} style={{ color: C.gold }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Create Escrow</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Pay via Pi Browser · 0.1% platform fee</div>
+            </div>
+          </div>
+          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label="Seller Wallet Address">
+              <InputBase required placeholder="G…" value={sellerWallet} onChange={e => setSellerWallet(e.target.value)} />
+            </Field>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Field label="Amount (π)">
+                <InputBase required type="number" min="0.000001" max="1000000" step="0.000001" placeholder="0.000000"
+                  value={amount} onChange={e => setAmount(e.target.value)} big gold />
               </Field>
               <Field label="Fee (0.1%)" hint="auto">
-                <div className="w-full rounded-2xl py-4 px-5 font-black text-xl border" style={{ background:"rgba(21,19,16,0.5)", borderColor:"rgba(245,196,108,0.05)", color:"#8A8378" }}>
+                <div style={{ background: `${C.card}80`, border: `1px solid ${C.border}20`, borderRadius: 16, padding: '14px 18px', fontSize: 18, fontWeight: 800, color: C.muted }}>
                   {fee > 0 ? fee.toFixed(6) : '—'}
                 </div>
               </Field>
             </div>
-
             <Field label="Deal Terms" hint="optional">
-              <textarea placeholder="Describe the goods or service being exchanged…"
-                value={desc} onChange={e => setDesc(e.target.value)} rows={3}
-                className="w-full rounded-2xl py-4 px-5 outline-none text-sm resize-none transition-all border text-[#C8C0B4]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
+              <TextArea placeholder="Describe the goods or service being exchanged…" value={desc} onChange={e => setDesc(e.target.value)} rows={3} />
             </Field>
-
             {createErr && <ErrBox msg={createErr} />}
-
             <PrimaryBtn type="submit" disabled={creating || !amount || !sellerWallet}>
-              {creating ? <><Spin /> Processing Payment…</> : <><Lock size={14} /> Lock Funds in Escrow</>}
+              {creating ? <><Spin /> Processing…</> : <><Lock size={14} /> Lock Funds in Escrow</>}
             </PrimaryBtn>
           </form>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {/* Success header */}
-          <div className="flex items-center gap-2.5 px-1">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-              <CheckCircle2 size={14} className="text-emerald-400" />
+        <div style={s}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingInline: 4 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: `${C.sage}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CheckCircle2 size={16} style={{ color: C.sage }} />
             </div>
             <div>
-              <h2 className="text-sm font-black text-emerald-400">Escrow Created</h2>
-              <p className="text-[10px] text-neutral-600">Keys shown only once — save them now</p>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.sage }}>Escrow Created!</div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>Keys shown only once — save them now</div>
             </div>
           </div>
 
           {/* TX Number */}
-          <Card className="p-4">
-            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-neutral-600 mb-2 flex items-center gap-1">
+          <Card>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: C.muted, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
               <Hash size={9} /> Transaction Number
             </div>
-            <div className="text-sm font-black text-amber-400 font-mono tracking-wider mb-2">
-              {result.transactionNumber}
-            </div>
+            <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: C.gold, letterSpacing: '0.05em', marginBottom: 8 }}>{result.transactionNumber}</div>
             <CopyBtn text={result.transactionNumber} label="Copy TX#" />
           </Card>
 
           {/* Escrow Code */}
-          <Card className="p-4 border-amber-500/15">
-            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/60 mb-2">
-              Escrow Code — Share with Seller
-            </div>
-            <div className="text-3xl font-black text-amber-400 tracking-[0.15em] font-mono mb-3">
-              {result.escrowCode}
-            </div>
-            <div className="flex gap-2 flex-wrap">
+          <Card style={{ border: `1.5px solid ${C.gold}25`, boxShadow: `0 0 0 1px ${C.gold}10` }}>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: `${C.gold}80`, marginBottom: 8 }}>Escrow Code — Share with Seller</div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 30, color: C.gold, letterSpacing: '0.1em', marginBottom: 12 }}>{result.escrowCode}</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <CopyBtn text={result.escrowCode} label="Copy Code" />
-              <button
-                onClick={() => {
-                  const url = window.location.origin + '/escrow/' + result.escrowCode;
-                  if (navigator.share) navigator.share({ title: 'PTrust Escrow', url });
-                  else window.open('https://wa.me/?text=' + encodeURIComponent(`PTrust Escrow Deal\nCode: ${result.escrowCode}\nSeller Key: ${result.sellerKey}\nAmount: ${amount} Pi\nLink: https://pts-v1.vercel.app`));
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-black text-amber-400 hover:bg-amber-500/15 transition-colors">
-                <Share2 size={11} /> Share
+              <button type="button"
+                onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(`PTrust Escrow Deal\nCode: ${result.escrowCode}\nSeller Key: ${result.sellerKey}\nAmount: ${amount} Pi\nLink: https://pts-v1.vercel.app`))}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 10, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: `${C.sage}15`, color: C.sage, border: `1px solid ${C.sage}30` }}>
+                <Share2 size={11} /> WhatsApp
               </button>
             </div>
           </Card>
 
           {/* Buyer Key */}
-          <Card className="p-4 border-amber-500/20 bg-amber-500/3">
-            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-400/70 mb-2 flex items-center justify-between">
-              <span>Your Buyer Key — Keep Private</span>
-              <button onClick={() => setShowBK(!showBK)} className="text-neutral-600 hover:text-neutral-400 transition-colors">
-                {showBK ? <EyeOff size={11} /> : <Eye size={11} />}
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: `${C.gold}70` }}>Your Buyer Key — Keep Private</div>
+              <button type="button" onClick={() => setShowBK(!showBK)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}>
+                {showBK ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
             </div>
-            <div className="text-base font-black text-white font-mono tracking-widest mb-1">
+            <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 14, color: '#E8E4DC', letterSpacing: '0.08em', marginBottom: 6 }}>
               {showBK ? result.buyerKey : 'BK-••••••••'}
             </div>
-            <p className="text-[9px] text-amber-400/50 mb-2.5">
-              Never share. Required to release funds or open a dispute.
-            </p>
+            <div style={{ fontSize: 9, color: `${C.gold}50`, marginBottom: 10 }}>Never share. Required to release funds or open dispute.</div>
             <CopyBtn text={result.buyerKey} label="Copy Buyer Key" />
           </Card>
 
           {/* Seller Key */}
-          <Card className="p-4 border-sky-500/20 bg-sky-500/3">
-            <div className="text-[9px] uppercase font-black tracking-[0.15em] text-sky-400/70 mb-2 flex items-center justify-between">
-              <span>Seller Key — Send to Seller</span>
-              <button onClick={() => setShowSK(!showSK)} className="text-neutral-600 hover:text-neutral-400 transition-colors">
-                {showSK ? <EyeOff size={11} /> : <Eye size={11} />}
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: `${C.sky}70` }}>Seller Key — Send to Seller</div>
+              <button type="button" onClick={() => setShowSK(!showSK)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}>
+                {showSK ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
             </div>
-            <div className="text-base font-black text-white font-mono tracking-widest mb-1">
+            <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 14, color: '#E8E4DC', letterSpacing: '0.08em', marginBottom: 6 }}>
               {showSK ? result.sellerKey : 'SK-••••••••'}
             </div>
-            <p className="text-[9px] text-sky-400/50 mb-2.5">
-              Share this with the seller — required to accept the deal.
-            </p>
+            <div style={{ fontSize: 9, color: `${C.sky}50`, marginBottom: 10 }}>Share with seller — required to accept the deal.</div>
             <CopyBtn text={result.sellerKey} label="Copy Seller Key" />
           </Card>
 
-          <InfoBanner msg="Send the Escrow Code AND Seller Key to the seller. Keep your Buyer Key private at all times." />
+          <InfoBanner msg="Send the Escrow Code AND Seller Key to the seller. Keep your Buyer Key private." />
 
-          <button
-            onClick={() => { setResult(null); setShowBK(false); setShowSK(false); }}
-            className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
+          <button type="button" onClick={() => { setResult(null); setShowBK(false); setShowSK(false); }}
+            style={{ width: '100%', padding: 12, fontSize: 11, fontWeight: 800, color: C.muted, background: 'none', border: 'none', cursor: 'pointer' }}>
             + Create Another Escrow
           </button>
         </div>
       )}
 
-      {/* ── Release Funds ── */}
-      <Card className="p-6">
-        <SecHead Icon={CheckCircle2} title="Confirm Receipt" sub="Release funds after you receive the goods" />
-        <form onSubmit={handleRelease} className="space-y-3">
+      {/* Release Funds */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.sage}12`, border: `1px solid ${C.sage}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle2 size={18} style={{ color: C.sage }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Confirm Receipt</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Release funds after receiving the goods</div>
+          </div>
+        </div>
+        <form onSubmit={handleRelease} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field label="Escrow Code">
-            <input required placeholder="PTO-XXXXXX" value={relCode}
-              onChange={e => setRelCode(e.target.value.toUpperCase())}
-              className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-sm uppercase tracking-widest transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
+            <InputBase required placeholder="PTO-XXXXXX" value={relCode} onChange={e => setRelCode(e.target.value.toUpperCase())} mono gold />
           </Field>
           <Field label="Buyer Key">
-            <input required placeholder="BK-XXXXXXXX" value={relKey}
-              onChange={e => setRelKey(e.target.value)}
-              className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
+            <InputBase required placeholder="BK-XXXXXXXX" value={relKey} onChange={e => setRelKey(e.target.value)} />
           </Field>
-          <div className="bg-amber-500/4 border border-amber-500/15 rounded-xl p-3.5 space-y-2">
-            <p className="text-[10px] text-amber-400/70 font-black">Type CONFIRM to authorize this irreversible release</p>
-            <input placeholder="CONFIRM" value={relConfirm}
-              onChange={e => setRelConfirm(e.target.value)}
-              className="w-full rounded-xl py-3 px-4 outline-none text-sm text-center font-black tracking-[0.3em] transition-all border" style={{ background:"#0A0908", borderColor:"rgba(245,196,108,0.20)", color:"#F5C46C" }} />
+          <div style={{ background: `${C.gold}05`, border: `1px solid ${C.gold}15`, borderRadius: 16, padding: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: `${C.gold}80`, marginBottom: 8 }}>Type CONFIRM to authorize this irreversible release</div>
+            <input placeholder="CONFIRM" value={relConfirm} onChange={e => setRelConfirm(e.target.value)}
+              style={{ width: '100%', background: C.bg, border: `1px solid ${C.gold}25`, borderRadius: 12, padding: '12px 16px', fontSize: 13, fontWeight: 800, textAlign: 'center', letterSpacing: '0.3em', color: C.gold, outline: 'none' }} />
           </div>
           {relErr && <ErrBox msg={relErr} />}
           {relOk  && <OkBox  msg={relOk} />}
-          <PrimaryBtn type="submit" variant="white"
-            disabled={relLoading || !!relOk || relConfirm !== 'CONFIRM' || !relCode || !relKey}>
-            {relLoading ? <><Spin /> Releasing…</> : 'Received — Release Funds to Seller'}
+          <PrimaryBtn type="submit" variant="sage" disabled={relLoading || !!relOk || relConfirm !== 'CONFIRM' || !relCode || !relKey}>
+            {relLoading ? <><Spin /> Releasing…</> : '✓ Received — Release Funds to Seller'}
           </PrimaryBtn>
         </form>
       </Card>
 
-      {/* ── Open Dispute ── */}
-      <Card className="p-6">
-        <SecHead Icon={XCircle} title="Not Received — Open Dispute" sub="Freeze funds and begin dispute process" />
-        <form onSubmit={handleDispute} className="space-y-3">
+      {/* Open Dispute */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.terra}12`, border: `1px solid ${C.terra}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <XCircle size={18} style={{ color: C.terra }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Not Received — Dispute</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Freeze funds and begin dispute process</div>
+          </div>
+        </div>
+        <form onSubmit={handleDispute} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field label="Escrow Code">
-            <input required placeholder="PTO-XXXXXX" value={disCode}
-              onChange={e => setDisCode(e.target.value.toUpperCase())}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-rose-500/50 outline-none font-mono text-sm uppercase tracking-widest transition-all placeholder-neutral-700" />
+            <InputBase required placeholder="PTO-XXXXXX" value={disCode} onChange={e => setDisCode(e.target.value.toUpperCase())} mono />
           </Field>
           <Field label="Describe the Issue">
-            <textarea required placeholder="What went wrong? Be specific…"
-              value={disReason} onChange={e => setDisReason(e.target.value)} rows={3}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-rose-500/50 outline-none text-sm resize-none transition-all placeholder-neutral-700 text-neutral-300" />
+            <TextArea required placeholder="What went wrong? Be specific…" value={disReason} onChange={e => setDisReason(e.target.value)} rows={3} />
           </Field>
           {disErr && <ErrBox msg={disErr} />}
           {disOk  && <OkBox  msg={disOk} />}
           <PrimaryBtn type="submit" variant="danger" disabled={disLoading || !!disOk}>
-            {disLoading ? <><Spin /> Processing…</> : <><XCircle size={14} /> Freeze Funds &amp; Open Dispute</>}
+            {disLoading ? <><Spin /> Processing…</> : <><XCircle size={14} /> Freeze Funds & Open Dispute</>}
           </PrimaryBtn>
         </form>
       </Card>
 
-      {/* ── Submit Evidence ── */}
-      <Card className="p-6">
-        <SecHead Icon={FileText} title="Submit Evidence" sub="15-day window after dispute is opened" />
-        <form onSubmit={handleEvidence} className="space-y-3">
+      {/* Submit Evidence */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.sky}12`, border: `1px solid ${C.sky}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FileText size={18} style={{ color: C.sky }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Submit Evidence</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>15-day window after dispute is opened</div>
+          </div>
+        </div>
+        <form onSubmit={handleEvidence} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field label="Escrow Code">
-            <input required placeholder="PTO-XXXXXX" value={evCode}
-              onChange={e => setEvCode(e.target.value.toUpperCase())}
-              className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-sm uppercase tracking-widest transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
+            <InputBase required placeholder="PTO-XXXXXX" value={evCode} onChange={e => setEvCode(e.target.value.toUpperCase())} mono />
           </Field>
           <Field label="Evidence" hint="max 5 items">
-            <textarea required placeholder="URL, tracking number, description, or any supporting proof…"
-              value={evText} onChange={e => setEvText(e.target.value)} rows={4}
-              className="w-full rounded-2xl py-4 px-5 outline-none text-sm resize-none transition-all border text-[#C8C0B4]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
+            <TextArea required placeholder="URL, tracking number, description, or any supporting proof…" value={evText} onChange={e => setEvText(e.target.value)} rows={4} />
           </Field>
           {evErr && <ErrBox msg={evErr} />}
           {evOk  && <OkBox  msg="Evidence submitted successfully." />}
@@ -1086,28 +928,6 @@ function BuyerTab({ user }: { user: PiUser }) {
           </PrimaryBtn>
         </form>
       </Card>
-
-      {showKycModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1C1A17] border border-amber-500/30 rounded-2xl p-6 max-w-sm w-full space-y-4">
-            <div className="flex items-center gap-3">
-              <Shield size={20} className="text-amber-400" />
-              <h3 className="text-sm font-black text-amber-400">Large Transaction Warning</h3>
-            </div>
-            <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Transactions over 100 Pi require both parties to have completed KYC verification on Pi Network.
-            </p>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input type="checkbox" checked={kycConfirmed} onChange={e => setKycConfirmed(e.target.checked)} className="mt-0.5 accent-amber-500" />
-              <span className="text-[11px] text-neutral-300">I confirm both me and the seller have completed KYC on Pi Network</span>
-            </label>
-            <div className="flex gap-2">
-              <button onClick={() => setShowKycModal(false)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-neutral-400 text-[11px] font-black">Cancel</button>
-              <button disabled={!kycConfirmed} onClick={() => { setShowKycModal(false); handleCreate({ preventDefault: () => {} } as any); }} className="flex-1 py-3 rounded-xl bg-amber-500 text-black text-[11px] font-black disabled:opacity-30">Proceed</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1116,23 +936,24 @@ function BuyerTab({ user }: { user: PiUser }) {
 // SELLER TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function SellerTab({ user }: { user: PiUser }) {
-  const [code, setCode]       = useState('');
-  const [key, setKey]         = useState('');
-  const [tx, setTx]           = useState<Transaction | null>(null);
-  const [err, setErr]         = useState<string | null>(null);
+  const [code, setCode]     = useState('');
+  const [key, setKey]       = useState('');
+  const [tx, setTx]         = useState<Transaction | null>(null);
+  const [err, setErr]       = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [rated, setRated]     = useState(false);
+  const [rated, setRated]   = useState(false);
+
+  const delayWarning = tx && tx.status === 'ACCEPTED' && (Date.now() - new Date(tx.createdAt).getTime()) > 3 * 24 * 60 * 60 * 1000;
 
   const lookup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code) return;
+    e.preventDefault(); if (!code) return;
     setLoading(true); setErr(null); setTx(null);
     try {
       const res = await fetch('/api/escrow/transaction/' + code.toUpperCase());
       const d   = await res.json();
       if (!d.success) throw new Error(d.error);
       setTx(d.transaction);
-    } catch (err: any) { setErr(err.message); }
+    } catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   };
 
@@ -1141,46 +962,48 @@ function SellerTab({ user }: { user: PiUser }) {
     setLoading(true); setErr(null);
     try {
       await apiFetch('/api/escrow/accept', { escrowCode: tx.escrowCode, sellerUsername: user.username, sellerKey: key });
-      setTx({ ...tx, status: 'ACCEPTED', sellerUsername: user.username });
-      setKey('');
-    } catch (err: any) { setErr(err.message); }
+      setTx({ ...tx, status: 'ACCEPTED', sellerUsername: user.username }); setKey('');
+    } catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   };
 
   const deliver = async () => {
-    if (!tx) return;
-    setLoading(true); setErr(null);
+    if (!tx) return; setLoading(true); setErr(null);
     try {
       await apiFetch('/api/escrow/complete', { escrowCode: tx.escrowCode, sellerUsername: user.username });
       setTx({ ...tx, status: 'DELIVERED' });
-    } catch (err: any) { setErr(err.message); }
+    } catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   };
 
   const rate = async (n: number) => {
     if (!tx) return;
-    try {
-      await apiFetch('/api/escrow/rate', { escrowCode: tx.escrowCode, rating: n, raterUsername: user.username });
-      setRated(true);
-    } catch { /* ignore */ }
+    try { await apiFetch('/api/escrow/rate', { escrowCode: tx.escrowCode, rating: n, raterUsername: user.username }); setRated(true); } catch { }
   };
 
+  const s = { display: 'flex', flexDirection: 'column' as const, gap: 12 };
+
   return (
-    <div className="space-y-4">
-      <Card className="p-6">
-        <SecHead Icon={Package} title="Seller Dashboard" sub="Enter your Escrow Code and Seller Key to manage your deal" />
+    <div style={s}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.sky}12`, border: `1px solid ${C.sky}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Package size={18} style={{ color: C.sky }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Seller Dashboard</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Enter Escrow Code and Seller Key</div>
+          </div>
+        </div>
 
         {!tx ? (
-          <form onSubmit={lookup} className="space-y-4">
+          <form onSubmit={lookup} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Field label="Escrow Code" hint="From buyer">
-              <input required placeholder="PTO-XXXXXX" value={code}
-                onChange={e => setCode(e.target.value.toUpperCase())}
-                className="w-full rounded-2xl py-4 px-5 outline-none font-mono text-2xl text-center tracking-[0.2em] uppercase transition-all border" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)", color:"#F5C46C" }} />
+              <input required placeholder="PTO-XXXXXX" value={code} onChange={e => setCode(e.target.value.toUpperCase())}
+                style={{ width: '100%', background: C.card2, border: `1px solid ${C.border}`, borderRadius: 16, padding: '16px 18px', fontSize: 24, fontWeight: 800, textAlign: 'center', letterSpacing: '0.15em', color: C.gold, outline: 'none', fontFamily: 'monospace' }} />
             </Field>
             <Field label="Seller Key" hint="From buyer">
-              <input placeholder="SK-XXXXXXXX" value={key}
-                onChange={e => setKey(e.target.value)}
-                className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
+              <InputBase placeholder="SK-XXXXXXXX" value={key} onChange={e => setKey(e.target.value)} />
             </Field>
             {err && <ErrBox msg={err} />}
             <PrimaryBtn type="submit" disabled={loading || !code}>
@@ -1188,103 +1011,66 @@ function SellerTab({ user }: { user: PiUser }) {
             </PrimaryBtn>
           </form>
         ) : (
-          <div className="space-y-4">
-            {/* Deal progress tracker */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <DealTracker status={tx.status} />
 
-            {/* Delay warning */}
-            {tx.status === 'ACCEPTED' && (Date.now() - new Date(tx.createdAt).getTime()) > 3*24*60*60*1000 && (
-              <div className="flex gap-2 text-[11px] p-3.5 rounded-2xl" style={{ background:'rgba(196,69,54,.08)', color:'#C44536', border:'1px solid rgba(196,69,54,.25)' }}>
-                <span className="flex-shrink-0">⚠️</span>
-                <span>3 days without delivery — buyer may open a dispute soon</span>
-              </div>
-            )}
+            {delayWarning && <InfoBanner msg="⚠️ 3 days without delivery — buyer may open a dispute soon" type="terra" />}
 
-            {/* Deal details */}
-            <div className="rounded-2xl p-4 space-y-3" style={{ background:'#1C1A17', border:'1px solid rgba(245,196,108,0.10)' }}>
+            <div style={{ background: C.card2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { l: 'TX Number',   v: <span className="font-black font-mono text-xs" style={{ color:'#F5C46C' }}>{tx.transactionNumber}</span> },
-                { l: 'Escrow Code', v: <span className="font-black font-mono" style={{ color:'#F5C46C' }}>{tx.escrowCode}</span>              },
-                { l: 'Amount',      v: <span className="font-black text-lg text-white">{tx.amount} <span style={{ color:'#F5C46C' }}>π</span></span> },
-                { l: 'Buyer',       v: <span className="font-black text-sm text-white">@{tx.buyerUsername}</span>                            },
-                { l: 'Status',      v: <StatusBadge status={tx.status} />                                                         },
+                { l: 'TX Number',   v: <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 11, color: C.gold }}>{tx.transactionNumber}</span> },
+                { l: 'Escrow Code', v: <span style={{ fontFamily: 'monospace', fontWeight: 800, color: C.gold }}>{tx.escrowCode}</span> },
+                { l: 'Amount',      v: <span style={{ fontWeight: 800, fontSize: 18, color: '#E8E4DC' }}>{tx.amount} <span style={{ color: C.gold }}>π</span></span> },
+                { l: 'Buyer',       v: <span style={{ fontWeight: 800, fontSize: 13, color: '#E8E4DC' }}>@{tx.buyerUsername}</span> },
+                { l: 'Status',      v: <StatusBadge status={tx.status} /> },
               ].map(({ l, v }) => (
-                <div key={l} className="flex items-center justify-between">
-                  <span className="text-[9px] uppercase font-black tracking-widest" style={{ color:'#8A8378' }}>{l}</span>
-                  {v}
+                <div key={l} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: C.muted }}>{l}</span>{v}
                 </div>
               ))}
               {tx.description && (
-                <div className="pt-2" style={{ borderTop:'1px solid rgba(245,196,108,0.08)' }}>
-                  <div className="text-[9px] uppercase font-black tracking-widest mb-1.5" style={{ color:'#8A8378' }}>Deal Terms</div>
-                  <p className="text-sm leading-relaxed text-white">{tx.description}</p>
+                <div style={{ paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em', color: C.muted, marginBottom: 6 }}>Deal Terms</div>
+                  <p style={{ fontSize: 13, lineHeight: 1.6, color: '#E8E4DC', margin: 0 }}>{tx.description}</p>
                 </div>
               )}
             </div>
 
-            {/* Action area */}
             {tx.status === 'PENDING' && (
-              <div className="space-y-3">
-                <InfoBanner msg="Review deal terms above. Enter your Seller Key to accept and lock funds." />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <InfoBanner msg="Review deal terms. Enter your Seller Key to accept and lock funds." />
                 <Field label="Seller Key">
-                  <input placeholder="SK-XXXXXXXX" value={key}
-                    onChange={e => setKey(e.target.value)}
-                    className="w-full rounded-2xl py-4 px-5 outline-none text-sm transition-all border text-[#E8E4DC] placeholder-[#8A8378]" style={{ background:"#1C1A17", borderColor:"rgba(245,196,108,0.12)" }} />
+                  <InputBase placeholder="SK-XXXXXXXX" value={key} onChange={e => setKey(e.target.value)} />
                 </Field>
                 <PrimaryBtn onClick={accept} disabled={loading}>
                   {loading ? <><Spin /> Processing…</> : <><Shield size={14} /> Accept Deal</>}
                 </PrimaryBtn>
               </div>
             )}
-
             {tx.status === 'ACCEPTED' && (
-              <div className="space-y-3">
-                <InfoBanner msg="Deal accepted. Deliver the goods or complete the service, then confirm below." />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <InfoBanner msg="Deal accepted. Deliver goods or complete service, then confirm." />
                 <PrimaryBtn onClick={deliver} disabled={loading}>
                   {loading ? <><Spin /> Processing…</> : <><Package size={14} /> Confirm Delivery Sent</>}
                 </PrimaryBtn>
               </div>
             )}
-
-            {tx.status === 'DELIVERED' && (
-              <InfoBanner msg="Delivery confirmed. Waiting for buyer to release funds." color="sky" />
-            )}
-
-            {tx.status === 'FROZEN' && (
-              <InfoBanner msg="Buyer opened a dispute. Submit your evidence in the Buyer tab within 15 days." color="blue" />
-            )}
-
-            {tx.status === 'UNDER_REVIEW' && (
-              <InfoBanner msg="Judges are reviewing the evidence. A decision will be made soon." color="blue" />
-            )}
-
+            {tx.status === 'DELIVERED'    && <InfoBanner msg="Delivery confirmed. Waiting for buyer to release funds." type="sky" />}
+            {tx.status === 'FROZEN'       && <InfoBanner msg="Dispute opened. Submit your evidence within 15 days." type="sky" />}
+            {tx.status === 'UNDER_REVIEW' && <InfoBanner msg="Admin is reviewing evidence. Decision coming soon." type="sky" />}
             {tx.status === 'RELEASED' && (
-              <div className="space-y-3">
-                <OkBox msg={'Payment of ' + tx.amount + ' Pi released to your wallet.'} />
-                {tx.sellerTxHash && (
-                  <div className="text-[10px] text-neutral-600 break-all">
-                    TxHash: <span className="text-neutral-500 font-mono">{tx.sellerTxHash}</span>
-                  </div>
-                )}
-                {!rated && (
-                  <Card className="p-4">
-                    <p className="text-[10px] font-black text-neutral-500 mb-3">Rate this transaction</p>
-                    <Stars onRate={rate} />
-                  </Card>
-                )}
-                {rated && <OkBox msg="Thank you for rating!" />}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <OkBox msg={`Payment of ${tx.amount} π released to your wallet.`} />
+                {!rated
+                  ? <Card><div style={{ fontSize: 10, fontWeight: 800, color: C.muted, marginBottom: 12 }}>Rate this transaction</div><Stars onRate={rate} /></Card>
+                  : <OkBox msg="Thank you for rating!" />}
               </div>
             )}
-
-            {tx.status === 'REFUNDED' && (
-              <InfoBanner msg="Judges ruled in favor of the buyer. Funds have been refunded." color="blue" />
-            )}
-
+            {tx.status === 'REFUNDED' && <InfoBanner msg="Dispute resolved in favor of the buyer. Funds refunded." type="sky" />}
             {err && <ErrBox msg={err} />}
 
-            <button
-              onClick={() => { setTx(null); setCode(''); setKey(''); setErr(null); setRated(false); }}
-              className="w-full py-3 text-neutral-600 text-xs font-black hover:text-neutral-300 transition-colors flex items-center justify-center gap-1.5">
+            <button type="button" onClick={() => { setTx(null); setCode(''); setKey(''); setErr(null); setRated(false); }}
+              style={{ width: '100%', padding: 12, fontSize: 11, fontWeight: 800, color: C.muted, background: 'none', border: 'none', cursor: 'pointer' }}>
               ← Look Up Another Escrow
             </button>
           </div>
@@ -1297,16 +1083,10 @@ function SellerTab({ user }: { user: PiUser }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TRANSACTIONS TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function TransactionsTab({
-  user,
-  onNavigate,
-}: {
-  user: PiUser;
-  onNavigate: (tab: string, code?: string) => void;
-}) {
+function TransactionsTab({ user }: { user: PiUser }) {
   const [list, setList]     = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
-  const [query, setQuery]     = useState('');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1321,201 +1101,237 @@ function TransactionsTab({
   useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(tx =>
-      (tx.escrowCode        || '').toLowerCase().includes(q) ||
-      (tx.transactionNumber || '').toLowerCase().includes(q) ||
-      (tx.buyerUsername     || '').toLowerCase().includes(q) ||
-      (tx.sellerUsername    || '').toLowerCase().includes(q) ||
-      (tx.description       || '').toLowerCase().includes(q)
+    if (!search.trim()) return list;
+    const q = search.toLowerCase();
+    return list.filter(t =>
+      t.escrowCode?.toLowerCase().includes(q) ||
+      t.transactionNumber?.toLowerCase().includes(q) ||
+      t.buyerUsername?.toLowerCase().includes(q) ||
+      t.sellerUsername?.toLowerCase().includes(q) ||
+      t.description?.toLowerCase().includes(q)
     );
-  }, [list, query]);
+  }, [list, search]);
 
   const rate = async (escrowCode: string, n: number) => {
     try {
       await apiFetch('/api/escrow/rate', { escrowCode, rating: n, raterUsername: user.username });
       setList(prev => prev.map(t => t.escrowCode === escrowCode ? { ...t, rating: n } : t));
-    } catch { /* ignore */ }
-  };
-
-  const generatePDF = (tx: Transaction) => {
-    const lines = [
-      'PTrust Oracle — Transaction Receipt',
-      '=====================================',
-      '',
-      `Transaction #:  ${tx.transactionNumber || tx.escrowCode}`,
-      `Escrow Code:    ${tx.escrowCode}`,
-      `Status:         RELEASED`,
-      `Amount:         ${tx.amount} Pi`,
-      `Fee:            ${tx.fee} Pi`,
-      `Description:    ${tx.description || 'N/A'}`,
-      `Buyer:          ${tx.buyerUsername}`,
-      `Seller:         ${tx.sellerUsername || 'N/A'}`,
-      `Created:        ${new Date(tx.createdAt).toLocaleString()}`,
-      tx.releasedAt ? `Released:       ${new Date(tx.releasedAt).toLocaleString()}` : '',
-      tx.sellerTxHash ? `Tx Hash:        ${tx.sellerTxHash}` : '',
-      '',
-      '=====================================',
-      'PTrust Oracle · Pi Network Escrow Protocol',
-      'Support: Riahig45@gmail.com',
-    ].filter(l => l !== undefined).join('\n');
-
-    const blob = new Blob([lines], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `PTrust_Receipt_${tx.transactionNumber || tx.escrowCode}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    } catch { }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between px-0.5">
-        <h2 className="text-base font-black tracking-tight">My Deals</h2>
-        <button
-          onClick={load}
-          className="flex items-center gap-1.5 text-[10px] font-black text-amber-500 hover:text-amber-400 transition-colors">
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> Refresh
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: '#E8E4DC' }}>My Deals</div>
+        <button type="button" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 800, color: C.gold, background: 'none', border: 'none', cursor: 'pointer' }}>
+          <RefreshCw size={11} style={{ animation: loading ? 'spin 0.7s linear infinite' : 'none' }} /> Refresh
         </button>
       </div>
 
-      {/* ── Search Bar ── */}
-      <div className="relative">
-        <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
-          <Search size={13} className="text-neutral-600" />
-        </div>
-        <input
-          type="text"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Search by escrow code or username..."
-          className="w-full bg-black/60 border border-white/8 rounded-xl py-2.5 pl-9 pr-9 text-sm focus:border-amber-500/50 outline-none transition-all placeholder-neutral-700 text-neutral-200"
-        />
-        {query && (
-          <button
-            onClick={() => setQuery('')}
-            className="absolute inset-y-0 right-3 flex items-center text-neutral-600 hover:text-neutral-300 transition-colors">
-            <X size={13} />
-          </button>
-        )}
+      {/* Search */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '10px 14px' }}>
+        <Search size={14} style={{ color: C.muted, flexShrink: 0 }} />
+        <input placeholder="Search by code or username…" value={search} onChange={e => setSearch(e.target.value)}
+          style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: '#E8E4DC' }} />
+        {search && <button type="button" onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}><X size={13} /></button>}
       </div>
 
       {loading && (
-        <div className="flex justify-center py-16">
-          <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
         </div>
       )}
 
-      {!loading && list.length === 0 && (
-        <div className="text-center py-20 text-neutral-700">
-          <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="font-black text-sm">No transactions yet</p>
-          <p className="text-xs mt-1 opacity-60">Create your first escrow in the Buyer tab</p>
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '64px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, opacity: 0.3 }}><Seal size={52} /></div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#E8E4DC' }}>{search ? 'No results found' : 'No transactions yet'}</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{search ? 'Try a different search term' : 'Create your first escrow in Buyer'}</div>
         </div>
       )}
 
-      {!loading && list.length > 0 && filtered.length === 0 && (
-        <div className="text-center py-16 text-neutral-700">
-          <Search size={28} className="mx-auto mb-3 opacity-30" />
-          <p className="font-black text-sm">No results found</p>
-          <p className="text-xs mt-1 opacity-60">Try a different escrow code or username</p>
-        </div>
-      )}
-
-      {filtered.map(tx => (
-        <Card key={tx._id} className="p-4 space-y-3 hover:border-white/10 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="font-black text-amber-400 tracking-wider text-[11px] font-mono">
-              {tx.transactionNumber || tx.escrowCode}
-            </span>
-            <StatusBadge status={tx.status} />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-600 text-[11px]">Amount</span>
-            <span className="font-black">{tx.amount} <span className="text-amber-400 text-xs">Pi</span></span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-600 text-[11px]">
-              {tx.buyerUsername === user.username ? 'Role' : 'Role'}
-            </span>
-            <span className={'text-[11px] font-black px-2 py-0.5 rounded-full ' +
-              (tx.buyerUsername === user.username ? 'bg-amber-500/10 text-amber-400' : 'bg-sky-500/10 text-sky-400')}>
-              {tx.buyerUsername === user.username ? 'Buyer' : 'Seller'}
-            </span>
-          </div>
-
-          {tx.description && (
-            <p className="text-[10px] text-neutral-600 leading-relaxed border-t border-white/4 pt-2.5">
-              {tx.description}
-            </p>
-          )}
-
-          <div className="text-[9px] text-neutral-700 flex items-center gap-1">
-            <Clock size={9} />
-            {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </div>
-
-          {/* Quick actions */}
-          <div className="space-y-2">
-            {tx.status === 'DELIVERED' && tx.buyerUsername === user.username && (
-              <>
-                <button
-                  onClick={() => onNavigate('buyer', tx.escrowCode)}
-                  className="w-full py-2.5 bg-emerald-500/8 border border-emerald-500/20 text-emerald-400 font-black rounded-xl text-[11px] hover:bg-emerald-500/15 transition-all flex items-center justify-center gap-2">
-                  <CheckCircle2 size={11} /> Received — Release Funds
-                </button>
-                <button
-                  onClick={() => onNavigate('dispute', tx.escrowCode)}
-                  className="w-full py-2.5 bg-rose-500/8 border border-rose-500/20 text-rose-400 font-black rounded-xl text-[11px] hover:bg-rose-500/15 transition-all flex items-center justify-center gap-2">
-                  <XCircle size={11} /> Not Received — Dispute
-                </button>
-              </>
-            )}
-            {['FROZEN', 'UNDER_REVIEW'].includes(tx.status) && (
-              <button
-                onClick={() => onNavigate('evidence', tx.escrowCode)}
-                className="w-full py-2.5 bg-blue-500/8 border border-blue-500/20 text-blue-400 font-black rounded-xl text-[11px] hover:bg-blue-500/15 transition-all flex items-center justify-center gap-2">
-                <FileText size={11} /> Submit Evidence
-              </button>
-            )}
+      {filtered.map(tx => {
+        const delay = tx.status === 'ACCEPTED' && (Date.now() - new Date(tx.createdAt).getTime()) > 3 * 24 * 60 * 60 * 1000;
+        return (
+          <Card key={tx._id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 11, color: C.gold }}>{tx.transactionNumber || tx.escrowCode}</span>
+              <StatusBadge status={tx.status} />
+            </div>
+            {delay && <InfoBanner msg="⚠️ 3 days without delivery" type="terra" />}
+            <DealTracker status={tx.status} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: C.muted }}>Amount</span>
+              <span style={{ fontWeight: 800, color: '#E8E4DC' }}>{tx.amount} <span style={{ color: C.gold }}>π</span></span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: C.muted }}>Role</span>
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 99, background: tx.buyerUsername === user.username ? `${C.gold}12` : `${C.sky}12`, color: tx.buyerUsername === user.username ? C.gold : C.sky }}>
+                {tx.buyerUsername === user.username ? 'Buyer' : 'Seller'}
+              </span>
+            </div>
+            {tx.description && <div style={{ fontSize: 10, lineHeight: 1.6, color: C.muted, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>{tx.description}</div>}
+            <div style={{ fontSize: 9, display: 'flex', alignItems: 'center', gap: 4, color: `${C.muted}60` }}>
+              <Clock size={9} />{new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </div>
             {tx.status === 'RELEASED' && !tx.rating && (
-              <div className="pt-0.5">
-                <p className="text-[9px] text-neutral-600 mb-2">Rate this deal</p>
+              <div style={{ paddingTop: 4 }}>
+                <div style={{ fontSize: 9, color: C.muted, marginBottom: 8 }}>Rate this deal</div>
                 <Stars onRate={n => rate(tx.escrowCode, n)} />
               </div>
             )}
             {tx.status === 'RELEASED' && tx.rating && (
-              <div className="flex items-center gap-1 pt-0.5">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 4 }}>
                 <Stars value={tx.rating} />
-                <span className="text-[9px] text-neutral-600 ml-1">Rated</span>
+                <span style={{ fontSize: 9, color: C.muted }}>Rated</span>
               </div>
             )}
-            {tx.status === 'RELEASED' && (
-              <div className="pt-2 border-t border-white/4">
-                <button
-                  onClick={() => generatePDF(tx)}
-                  className="w-full py-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 font-black rounded-xl text-[11px] hover:bg-amber-500/15 transition-all flex items-center justify-center gap-2">
-                  <FileDown size={12} /> Download Transaction Receipt (PDF)
-                </button>
-              </div>
-            )}
-          </div>
-        </Card>
-      ))}
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RECEIPTS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function ReceiptsTab({ username }: { username: string }) {
+  const [list, setList]       = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/escrow/transactions?username=' + username);
+        const d   = await res.json();
+        setList((d.transactions || []).filter((t: Transaction) => t.status === 'RELEASED'));
+      } catch { }
+      finally { setLoading(false); }
+    })();
+  }, [username]);
+
+  const generatePDF = (tx: Transaction) => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`
+      <html><head><title>Receipt ${tx.transactionNumber}</title>
+      <style>
+        body { font-family: Georgia, serif; max-width: 580px; margin: 48px auto; color: #1C1A17; padding: 0 24px; }
+        .header { text-align: center; padding-bottom: 24px; margin-bottom: 32px; border-bottom: 3px solid #F5C46C; }
+        .logo { font-size: 36px; font-weight: 900; letter-spacing: -1px; }
+        .gold { color: #F5C46C; }
+        .sub { color: #8A8378; font-size: 11px; letter-spacing: 4px; text-transform: uppercase; margin-top: 4px; }
+        .badge { display: inline-block; background: #5C8374; color: #fff; padding: 4px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; margin-top: 12px; }
+        .row { display: flex; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid #E8E4DC; }
+        .row:last-child { border-bottom: none; }
+        .k { color: #8A8378; font-size: 12px; }
+        .v { font-weight: 700; font-size: 13px; text-align: right; max-width: 60%; }
+        .footer { text-align: center; margin-top: 40px; color: #8A8378; font-size: 10px; line-height: 1.8; }
+      </style></head><body>
+      <div class="header">
+        <div class="logo">P<span class="gold">TRUST</span></div>
+        <div class="sub">Oracle · Escrow Protocol</div>
+        <div class="badge">✓ OFFICIAL RECEIPT</div>
+      </div>
+      <div class="row"><span class="k">Transaction Number</span><span class="v">${tx.transactionNumber}</span></div>
+      <div class="row"><span class="k">Escrow Code</span><span class="v">${tx.escrowCode}</span></div>
+      <div class="row"><span class="k">Date</span><span class="v">${new Date(tx.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span></div>
+      <div class="row"><span class="k">Buyer</span><span class="v">@${tx.buyerUsername}</span></div>
+      <div class="row"><span class="k">Amount</span><span class="v">${tx.amount} Pi</span></div>
+      <div class="row"><span class="k">Platform Fee (0.1%)</span><span class="v">${(tx.fee || tx.amount * 0.001).toFixed(6)} Pi</span></div>
+      <div class="row"><span class="k">Description</span><span class="v">${tx.description || 'N/A'}</span></div>
+      <div class="row"><span class="k">Status</span><span class="v" style="color:#5C8374">✓ RELEASED</span></div>
+      <div class="footer">This receipt is generated by PTrust Oracle<br>Secured on Pi Network Blockchain<br>pts-v1.vercel.app</div>
+      </body></html>
+    `);
+    w.document.close(); w.print();
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 14, background: `${C.gold}12`, border: `1px solid ${C.gold}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <FileDown size={18} style={{ color: C.gold }} />
+        </div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#E8E4DC' }}>Transaction Receipts</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Download official receipts for completed deals</div>
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+        </div>
+      )}
+
+      {!loading && list.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '64px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, opacity: 0.3 }}><Seal size={52} /></div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#E8E4DC' }}>No completed transactions yet</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Receipts appear here after funds are released</div>
+        </div>
+      )}
+
+      {list.map(tx => (
+        <Card key={tx._id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 11, color: C.gold }}>{tx.transactionNumber}</span>
+            <StatusBadge status={tx.status} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: C.muted }}>Amount</span>
+              <span style={{ fontWeight: 800, color: '#E8E4DC' }}>{tx.amount} <span style={{ color: C.gold }}>π</span></span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: C.muted }}>Date</span>
+              <span style={{ fontSize: 11, color: '#E8E4DC' }}>{new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+            </div>
+            {tx.description && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: C.muted }}>Description</span>
+                <span style={{ fontSize: 11, color: '#E8E4DC', textAlign: 'right', maxWidth: '60%' }}>{tx.description}</span>
+              </div>
+            )}
+          </div>
+          <button type="button" onClick={() => generatePDF(tx)}
+            style={{ width: '100%', padding: '14px', borderRadius: 16, fontWeight: 800, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', border: 'none', background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.card, boxShadow: `0 6px 20px rgba(245,196,108,.20)` }}>
+            <FileDown size={14} /> Download PDF Receipt
+          </button>
+        </Card>
+      ))}
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // STATS TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function StatsTab({ user }: { user: PiUser }) {
-  const [list, setList]     = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [list, setList]           = useState<Transaction[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [piPrice, setPiPrice]     = useState<number | null>(null);
+  const [priceLoading, setPriceLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch('https://api.kraken.com/0/public/Ticker?pair=PIUSD');
+        const data = await res.json();
+        const ticker = data?.result?.PIUSD ?? data?.result?.['PI/USD'];
+        const price  = ticker ? parseFloat(ticker.c[0]) : NaN;
+        if (!isNaN(price)) { setPiPrice(price); return; }
+        throw new Error('no price');
+      } catch {
+        try {
+          const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=pi-network&vs_currencies=usd');
+          const data = await res.json();
+          setPiPrice(data?.['pi-network']?.usd || null);
+        } catch { setPiPrice(null); }
+      } finally { setPriceLoading(false); }
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -1523,7 +1339,7 @@ function StatsTab({ user }: { user: PiUser }) {
         const res = await fetch('/api/escrow/transactions?username=' + user.username);
         const d   = await res.json();
         setList(d.transactions || []);
-      } catch { /* ignore */ }
+      } catch { }
       finally { setLoading(false); }
     })();
   }, [user.username]);
@@ -1537,574 +1353,374 @@ function StatsTab({ user }: { user: PiUser }) {
     asSeller: list.filter(t => t.sellerUsername === user.username).length,
   }), [list, user.username]);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '64px 0' }}>
+      <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="px-0.5">
-        <h2 className="text-base font-black tracking-tight">Statistics</h2>
-        <p className="text-[10px] text-neutral-600 mt-0.5">@{user.username}&apos;s trading overview</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ paddingInline: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: '#E8E4DC' }}>Statistics</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>@{user.username}&apos;s overview</div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {/* Pi Price */}
+      <div style={{ padding: '14px 16px', borderRadius: 22, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: `linear-gradient(135deg, ${C.gold}10, ${C.gold}04)`, border: `1px solid ${C.gold}20` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Seal size={40} />
+          <div>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800, color: C.muted }}>Pi / USD · Kraken</div>
+            {priceLoading
+              ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}><Spin /><span style={{ fontSize: 11, color: C.muted }}>Loading…</span></div>
+              : piPrice
+                ? <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 22, color: C.gold, marginTop: 2 }}>{'$' + piPrice.toFixed(4)}</div>
+                : <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Unavailable</div>
+            }
+          </div>
+        </div>
+        {piPrice && stats.totalPi > 0 && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, fontWeight: 800 }}>Your Total</div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: C.sage, marginTop: 2 }}>{'$' + (stats.totalPi * piPrice).toFixed(2)}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {[
-          { l: 'Total Deals',   v: stats.total,                      accent: 'text-white',       border: '',                     Icon: Activity      },
-          { l: 'Completed',     v: stats.released,                   accent: 'text-emerald-400', border: 'border-emerald-500/10', Icon: CheckCircle2  },
-          { l: 'Active Disputes', v: stats.disputed,                 accent: 'text-rose-400',    border: 'border-rose-500/10',   Icon: AlertTriangle },
-          { l: 'Pi Transacted', v: stats.totalPi.toFixed(1) + ' π', accent: 'text-amber-400',   border: 'border-amber-500/10',  Icon: TrendingUp    },
-        ].map(({ l, v, accent, border, Icon }) => (
-          <Card key={l} className={'p-4 ' + border}>
-            <Icon size={14} className={accent + ' opacity-60 mb-3'} />
-            <div className={'text-2xl font-black ' + accent}>{v}</div>
-            <div className="text-[9px] text-neutral-600 uppercase tracking-widest mt-1">{l}</div>
+          { l: 'Total Deals',     v: stats.total,                     c: C.gold,  I: Activity       },
+          { l: 'Completed',       v: stats.released,                  c: C.sage,  I: CheckCircle2   },
+          { l: 'Active Disputes', v: stats.disputed,                  c: C.terra, I: AlertTriangle  },
+          { l: 'π Transacted',    v: stats.totalPi.toFixed(3) + ' π', c: C.gold,  I: TrendingUp     },
+        ].map(({ l, v, c, I }) => (
+          <Card key={l} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <I size={14} style={{ color: c, opacity: 0.6 }} />
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 26, color: c }}>{v}</div>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.muted }}>{l}</div>
           </Card>
         ))}
       </div>
 
       {/* Role breakdown */}
-      <Card className="p-5">
-        <div className="text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-4">Role Breakdown</div>
-        <div className="flex gap-3">
-          <div className="flex-1 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-amber-400">{stats.asBuyer}</div>
-            <div className="text-[9px] text-neutral-600 mt-1">As Buyer</div>
+      <Card>
+        <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.muted, marginBottom: 14 }}>Role Breakdown</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ flex: 1, background: `${C.gold}08`, border: `1px solid ${C.gold}15`, borderRadius: 18, padding: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 28, color: C.gold }}>{stats.asBuyer}</div>
+            <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>As Buyer</div>
           </div>
-          <div className="flex-1 bg-sky-500/5 border border-sky-500/10 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-sky-400">{stats.asSeller}</div>
-            <div className="text-[9px] text-neutral-600 mt-1">As Seller</div>
+          <div style={{ flex: 1, background: `${C.sky}08`, border: `1px solid ${C.sky}15`, borderRadius: 18, padding: 16, textAlign: 'center' }}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 28, color: C.sky }}>{stats.asSeller}</div>
+            <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>As Seller</div>
           </div>
         </div>
       </Card>
 
       {/* Success rate */}
       {stats.total > 0 && (
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Success Rate</span>
-            <span className="text-sm font-black text-emerald-400">
-              {Math.round((stats.released / stats.total) * 100)}%
-            </span>
+        <Card>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.muted }}>Success Rate</span>
+            <span style={{ fontWeight: 800, fontSize: 14, color: C.sage }}>{Math.round((stats.released / stats.total) * 100)}%</span>
           </div>
-          <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-700"
-              style={{ width: (stats.released / stats.total * 100) + '%' }}
-            />
-          </div>
-          <div className="flex justify-between text-[9px] text-neutral-700 mt-2">
-            <span>{stats.released} completed</span>
-            <span>{stats.total - stats.released} pending / other</span>
+          <div style={{ height: 8, borderRadius: 99, overflow: 'hidden', background: `${C.muted}20` }}>
+            <div style={{ height: '100%', borderRadius: 99, width: (stats.released / stats.total * 100) + '%', background: `linear-gradient(90deg, ${C.sage}, ${C.sage}90)`, transition: 'width .8s ease' }} />
           </div>
         </Card>
       )}
 
       {/* Support */}
-      <Card className="p-5">
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-            <Mail size={13} className="text-amber-400" />
-          </div>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <Seal size={34} />
           <div>
-            <h3 className="text-xs font-black">Support</h3>
-            <p className="text-[9px] text-neutral-600">Response within 24 hours</p>
+            <div style={{ fontWeight: 800, fontSize: 13, color: '#E8E4DC' }}>Support</div>
+            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Response within 24 hours</div>
           </div>
         </div>
-        <PrimaryBtn variant="ghost"
-          onClick={() => window.open('mailto:Riahig45@gmail.com?subject=PTrust Oracle Support')}>
-          <Mail size={13} /> Contact Support
+        <PrimaryBtn variant="ghost" onClick={() => window.open('mailto:Riahig45@gmail.com?subject=PTrust Oracle Support')}>
+          <Mail size={14} /> Contact Support
         </PrimaryBtn>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+          <a href="/privacy" style={{ fontSize: 9, color: `${C.muted}60`, textDecoration: 'none' }}>Privacy Policy</a>
+          <span style={{ color: `${C.muted}30` }}>·</span>
+          <a href="/terms" style={{ fontSize: 9, color: `${C.muted}60`, textDecoration: 'none' }}>Terms of Service</a>
+        </div>
       </Card>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHAT TAB — Community messages for all users
+// CHAT TAB
 // ─────────────────────────────────────────────────────────────────────────────
-interface ChatMessage {
-  _id?: string;
-  username: string;
-  text: string;
-  createdAt: string;
-}
-
 function ChatTab({ username }: { username: string }) {
-  const [messages, setMessages]   = useState<ChatMessage[]>([]);
+  const [messages, setMessages]   = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [chatLoading, setChatLoading] = useState(true);
   const [sending, setSending]     = useState(false);
-  const [showEmoji, setShowEmoji] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef  = useRef<HTMLInputElement>(null);
-
-  const EMOJIS = ['😊', '👍', '🔒', '✅', '💰', '🤝', '🎉', '🚀', '💎', '🙏', '⭐', '🔥'];
+  const [loading, setLoading]     = useState(true);
+  const endRef = useRef<HTMLDivElement>(null);
 
   const loadMessages = useCallback(async () => {
     try {
       const res = await fetch('/api/messages');
-      const data = await res.json();
-      if (data.success) setMessages(data.messages ?? []);
-    } catch { /* ignore */ }
-    finally { setChatLoading(false); }
+      const d   = await res.json();
+      if (d.success) setMessages(d.messages || []);
+    } catch { }
+    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    loadMessages();
-    const interval = setInterval(loadMessages, 30_000);
-    return () => clearInterval(interval);
-  }, [loadMessages]);
+  useEffect(() => { loadMessages(); const iv = setInterval(loadMessages, 30_000); return () => clearInterval(iv); }, [loadMessages]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // Smooth scroll to bottom on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Online users: unique usernames active in last 5 minutes
-  const onlineUsers = useMemo(() => {
-    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-    const seen = new Set<string>();
-    messages.forEach(m => {
-      if (new Date(m.createdAt).getTime() >= fiveMinAgo) seen.add(m.username);
-    });
-    return seen.size;
-  }, [messages]);
-
-  const handleSend = async () => {
-    const text = newMessage.trim();
-    if (!text || sending) return;
+  const send = async () => {
+    if (!newMessage.trim() || sending) return;
     setSending(true);
-    setShowEmoji(false);
-    try {
-      const res  = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, text }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setNewMessage('');
-        await loadMessages();
-      }
-    } catch { /* ignore */ }
+    try { await apiFetch('/api/messages', { username, text: newMessage.trim() }); setNewMessage(''); await loadMessages(); }
+    catch { }
     finally { setSending(false); }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-    if (e.key === 'Escape') setShowEmoji(false);
-  };
-
-  const insertEmoji = (emoji: string) => {
-    setNewMessage(prev => (prev + emoji).slice(0, 500));
-    setShowEmoji(false);
-    inputRef.current?.focus();
-  };
-
-  const remaining = 500 - newMessage.length;
-
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const EMOJIS = ['😊', '👍', '🔒', '✅', '💰', '🤝', '🚀', '❓', '⚡', '🛡️'];
 
   return (
-    <div className="space-y-3">
-      <Card className="overflow-hidden">
-
-        {/* ── Header ── */}
-        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/5">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center flex-shrink-0">
-            <MessageCircle size={16} className="text-amber-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-white">Community Chat</h2>
-              {messages.length > 0 && (
-                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                  {messages.length} msg{messages.length !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-neutral-500">PTrust Oracle Community</p>
-          </div>
-          {/* Online indicator */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex-shrink-0">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-            </span>
-            <span className="text-[9px] font-black text-emerald-400">
-              {onlineUsers > 0 ? `${onlineUsers} online` : 'Live'}
-            </span>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 180px)' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#E8E4DC' }}>Community Chat</div>
+          <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 99, fontWeight: 800, background: `${C.sage}12`, color: C.sage }}>{messages.length} msgs</span>
         </div>
+        <button type="button" onClick={loadMessages} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.muted }}>
+          <RefreshCw size={14} />
+        </button>
+      </div>
 
-        {/* ── Messages area ── */}
-        <div className="h-[400px] overflow-y-auto px-4 py-4 space-y-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1a1a1a transparent' }}>
-
-          {/* Loading */}
-          {chatLoading && (
-            <div className="flex flex-col items-center justify-center h-full gap-3">
-              <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
-              <p className="text-[11px] text-neutral-600">Loading messages…</p>
-            </div>
-          )}
-
-          {/* Empty state with PTrust Oracle branding */}
-          {!chatLoading && messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
-              <div className="relative">
-                <div className="w-20 h-20 rounded-2xl bg-amber-500/8 border border-amber-500/15 flex items-center justify-center">
-                  <span className="text-3xl font-black" style={{ fontFamily: "'Fraunces', serif", background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>P</span>
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-xl bg-[#1C1A17] border border-amber-500/20 flex items-center justify-center">
-                  <MessageCircle size={14} className="text-amber-400" />
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-black text-white">PTrust Oracle Community</p>
-                <p className="text-[11px] text-neutral-600 mt-1 leading-relaxed">
-                  No messages yet.<br />Be the first to start the conversation!
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {['🔒 Secure', '🤝 Trusted', '💰 Pi Network'].map(t => (
-                  <span key={t} className="text-[9px] px-2.5 py-1 rounded-full bg-white/4 border border-white/6 text-neutral-600">{t}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Message list */}
-          {!chatLoading && messages.map((msg, i) => {
-            const isMe = msg.username === username;
-            const initial = msg.username.charAt(0).toUpperCase();
-            return (
-              <div key={msg._id ?? i} className={'flex gap-2.5 items-end ' + (isMe ? 'flex-row-reverse' : '')}>
-                {/* Avatar circle with first letter */}
-                <div
-                  className={'w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black shadow-sm ' +
-                    (isMe
-                      ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-black'
-                      : 'bg-neutral-800 border border-white/10 text-neutral-400')}
-                >
-                  {initial}
-                </div>
-
-                {/* Bubble + meta */}
-                <div className={'flex flex-col gap-1 max-w-[72%] ' + (isMe ? 'items-end' : 'items-start')}>
-                  {/* Username label */}
-                  <span className={'text-[9px] font-black tracking-wide px-1 ' + (isMe ? 'text-amber-400' : 'text-neutral-500')}>
-                    {isMe ? 'You' : '@' + msg.username}
-                  </span>
-                  {/* Message bubble */}
-                  <div
-                    className={'text-[12px] leading-relaxed px-3.5 py-2.5 ' +
-                      (isMe
-                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-black font-medium rounded-2xl rounded-br-sm shadow-[0_4px_16px_rgba(245,158,11,0.2)]'
-                        : 'bg-neutral-800 border border-white/8 text-neutral-200 rounded-2xl rounded-bl-sm')}
-                  >
-                    {msg.text}
-                  </div>
-                  {/* Timestamp below bubble */}
-                  <span className={'text-[8px] text-neutral-700 px-1 ' + (isMe ? 'text-right' : '')}>
-                    {formatTime(msg.createdAt)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* ── Emoji picker ── */}
-        {showEmoji && (
-          <div className="mx-3 mb-2 p-3 rounded-2xl bg-[#111] border border-white/8 flex flex-wrap gap-2">
-            {EMOJIS.map(e => (
-              <button
-                key={e}
-                onClick={() => insertEmoji(e)}
-                className="text-xl hover:scale-125 transition-transform active:scale-95"
-              >
-                {e}
-              </button>
-            ))}
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
+        {loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
+            <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
           </div>
         )}
+        {!loading && messages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '48px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, opacity: 0.3 }}><Seal size={48} /></div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: '#E8E4DC' }}>No messages yet</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Be the first to say hello!</div>
+          </div>
+        )}
+        {messages.map((msg, i) => {
+          const isMe = msg.username === username;
+          return (
+            <div key={i} style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+              <div style={{ maxWidth: '76%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', gap: 3 }}>
+                {!isMe && <span style={{ fontSize: 9, fontWeight: 800, color: C.gold, paddingInline: 2 }}>@{msg.username}</span>}
+                <div style={{
+                  padding: '10px 14px', fontSize: 13, lineHeight: 1.4,
+                  ...(isMe
+                    ? { background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.card, borderRadius: '18px 18px 4px 18px', fontWeight: 700 }
+                    : { background: C.card2, color: '#E8E4DC', border: `1px solid ${C.border}`, borderRadius: '18px 18px 18px 4px' }
+                  ),
+                }}>{msg.text}</div>
+                <span style={{ fontSize: 8, color: `${C.muted}60`, paddingInline: 2 }}>
+                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
 
-        {/* ── Pill-shaped input with embedded send button ── */}
-        <div className="border-t border-white/5 px-3 py-3">
-          <div className="flex items-center gap-2 bg-black/50 border border-white/8 rounded-full px-4 py-1.5 focus-within:border-amber-500/40 transition-all">
-            {/* Emoji toggle button */}
-            <button
-              type="button"
-              onClick={() => setShowEmoji(p => !p)}
-              className={'text-lg transition-all hover:scale-110 active:scale-95 flex-shrink-0 ' +
-                (showEmoji ? 'opacity-100' : 'opacity-50 hover:opacity-100')}
-              title="Emoji"
-            >
-              😊
-            </button>
+      {/* Emoji row */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8, overflowX: 'auto', flexShrink: 0, paddingBottom: 2 }}>
+        {EMOJIS.map(e => (
+          <button key={e} type="button"
+            onClick={() => setNewMessage(prev => (prev + e).slice(0, 500))}
+            style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, fontSize: 16, background: C.card2, border: `1px solid ${C.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {e}
+          </button>
+        ))}
+      </div>
 
-            {/* Text input */}
-            <input
-              ref={inputRef}
-              type="text"
-              value={newMessage}
-              onChange={e => setNewMessage(e.target.value.slice(0, 500))}
-              onKeyDown={handleKeyDown}
-              placeholder="Message the community…"
-              disabled={sending}
-              className="flex-1 bg-transparent outline-none text-sm text-neutral-200 placeholder-neutral-700 py-1.5"
-            />
+      {/* Input */}
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <input
+          placeholder="Write a message…" value={newMessage}
+          onChange={e => setNewMessage(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          maxLength={500}
+          style={{ flex: 1, background: C.card2, border: `1px solid ${C.border}`, borderRadius: 18, padding: '12px 16px', fontSize: 13, color: '#E8E4DC', outline: 'none' }}
+        />
+        <button type="button" onClick={send} disabled={sending || !newMessage.trim()}
+          style={{ width: 46, height: 46, borderRadius: 16, border: 'none', cursor: sending || !newMessage.trim() ? 'not-allowed' : 'pointer', opacity: sending || !newMessage.trim() ? 0.4 : 1, background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Send size={16} style={{ color: C.card }} />
+        </button>
+      </div>
+      <div style={{ textAlign: 'right', marginTop: 4, fontSize: 9, color: `${C.muted}60` }}>{newMessage.length}/500</div>
+    </div>
+  );
+}
 
-            {/* Character countdown */}
-            {newMessage.length > 400 && (
-              <span className={'text-[9px] font-black flex-shrink-0 ' + (remaining < 50 ? 'text-rose-400' : 'text-neutral-600')}>
-                {remaining}
-              </span>
-            )}
+// ─────────────────────────────────────────────────────────────────────────────
+// PROFILE TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function ProfileTab({ username }: { username: string }) {
+  const [list, setList]           = useState<Transaction[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
 
-            {/* Send button inside pill */}
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={sending || !newMessage.trim()}
-              className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-black transition-all hover:bg-amber-400 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-[0_4px_12px_rgba(245,158,11,0.3)]"
-            >
-              {sending ? <Spin /> : <Send size={13} />}
-            </button>
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/escrow/transactions?username=' + username);
+        const d   = await res.json();
+        setList(d.transactions || []);
+      } catch { }
+      finally { setLoading(false); }
+    })();
+  }, [username]);
+
+  const stats = useMemo(() => {
+    const total    = list.length;
+    const released = list.filter(t => t.status === 'RELEASED').length;
+    const asBuyer  = list.filter(t => t.buyerUsername === username).length;
+    const asSeller = list.filter(t => t.sellerUsername === username).length;
+    const ratings  = list.filter(t => t.rating).map(t => t.rating as number);
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const badge = total >= 20
+      ? { label: 'Elite Merchant', color: C.gold,   bg: `${C.gold}12`,   emoji: '💎' }
+      : total >= 5
+      ? { label: 'Trusted Trader', color: C.sage,   bg: `${C.sage}12`,   emoji: '🤝' }
+      : { label: 'New Pioneer',    color: C.sky,    bg: `${C.sky}12`,    emoji: '🚀' };
+    const memberSince = list.length > 0 ? new Date(list[list.length - 1].createdAt) : new Date();
+    return { total, released, asBuyer, asSeller, avgRating, badge, memberSince };
+  }, [list, username]);
+
+  const trust = useMemo(() => calculateTrustScore(list), [list]);
+
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '64px 0' }}>
+      <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+    </div>
+  );
+
+  const circ  = 2 * Math.PI * 38;
+  const dash  = circ - (trust.score / 100) * circ;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Profile hero */}
+      <Card style={{ boxShadow: `0 0 0 1px ${C.gold}12, 0 8px 32px rgba(0,0,0,.4)` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 18, background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: C.card }}>
+            {username.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 18, color: '#E8E4DC' }}>@{username}</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '3px 10px', borderRadius: 99, background: stats.badge.bg, color: stats.badge.color, fontSize: 10, fontWeight: 800 }}>
+              {stats.badge.emoji} {stats.badge.label}
+            </div>
+            <div style={{ fontSize: 9, color: C.muted, marginTop: 5 }}>Member since {stats.memberSince.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
           </div>
         </div>
 
+        {/* Trust ring */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
+            <svg width="96" height="96" viewBox="0 0 96 96" style={{ position: 'absolute', inset: 0 }}>
+              <circle cx="48" cy="48" r="38" fill="none" stroke={`${C.muted}20`} strokeWidth="8" />
+              <circle cx="48" cy="48" r="38" fill="none" stroke={trust.color} strokeWidth="8"
+                strokeDasharray={circ} strokeDashoffset={dash}
+                strokeLinecap="round" transform="rotate(-90 48 48)"
+                style={{ transition: 'stroke-dashoffset 1s ease, stroke .5s ease' }} />
+            </svg>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22, color: trust.color }}>{trust.score}</span>
+              <span style={{ fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: `${trust.color}70` }}>/ 100</span>
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: '#E8E4DC', marginBottom: 4 }}>{trust.level}</div>
+            {trust.score < 30  && <InfoBanner msg="⚠️ Low trust — other users may be cautious" type="terra" />}
+            {trust.disputed > 2 && <InfoBanner msg="Multiple disputes detected" type="terra" />}
+            <button type="button" onClick={() => setShowDetails(!showDetails)}
+              style={{ fontSize: 10, fontWeight: 800, color: `${C.gold}70`, background: 'none', border: 'none', cursor: 'pointer', marginTop: 8, padding: 0 }}>
+              {showDetails ? 'Hide' : 'Show'} score breakdown
+            </button>
+            {showDetails && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {trust.details.map((d, i) => (
+                  <div key={i} style={{ fontSize: 10, color: d.startsWith('+') ? C.sage : C.terra }}>{d}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {[
+          { l: 'Total Deals', v: stats.total,    c: C.gold },
+          { l: 'Completed',   v: stats.released, c: C.sage },
+          { l: 'As Buyer',    v: stats.asBuyer,  c: C.gold },
+          { l: 'As Seller',   v: stats.asSeller, c: C.sky  },
+        ].map(({ l, v, c }) => (
+          <Card key={l} style={{ textAlign: 'center' }}>
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 28, color: c }}>{v}</div>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.muted, marginTop: 6 }}>{l}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Average rating */}
+      {stats.avgRating > 0 && (
+        <Card>
+          <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.muted, marginBottom: 12 }}>Average Rating</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Stars value={Math.round(stats.avgRating)} />
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 20, color: C.gold }}>{stats.avgRating.toFixed(1)}</span>
+          </div>
+        </Card>
+      )}
+
+      {/* Recent deals */}
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: '#E8E4DC' }}>Recent Deals</div>
+        </div>
+        {list.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, opacity: 0.2 }}><Seal size={40} /></div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.muted }}>No transactions yet</div>
+          </div>
+        ) : list.slice(0, 5).map((tx, i) => (
+          <div key={tx._id ?? i} style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: i < 4 ? `1px solid ${C.border}` : 'none' }}>
+            <span style={{ fontSize: 8, fontWeight: 800, padding: '2px 8px', borderRadius: 8, flexShrink: 0, background: tx.buyerUsername === username ? `${C.gold}12` : `${C.sky}12`, color: tx.buyerUsername === username ? C.gold : C.sky, border: `1px solid ${tx.buyerUsername === username ? C.gold : C.sky}20` }}>
+              {tx.buyerUsername === username ? 'Buyer' : 'Seller'}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: '#E8E4DC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.transactionNumber || tx.escrowCode}</div>
+              <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#E8E4DC' }}>{tx.amount} <span style={{ color: C.gold }}>π</span></div>
+              <StatusBadge status={tx.status} />
+            </div>
+          </div>
+        ))}
       </Card>
     </div>
   );
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
-// DEAL TRACKER COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
-function DealTracker({ status }: { status: TxStatus }) {
-  const steps = ['Created', 'Accepted', 'Delivered', 'Released'];
-  const currentIdx =
-    status === 'PENDING'   ? 0 :
-    status === 'ACCEPTED'  ? 1 :
-    status === 'DELIVERED' ? 2 :
-    status === 'RELEASED'  ? 3 : 0;
-  return (
-    <div className="p-3.5 rounded-2xl" style={{ background:'#1C1A17', border:'1px solid rgba(245,196,108,0.10)' }}>
-      <div className="flex items-center">
-        {steps.map((step, i) => (
-          <React.Fragment key={step}>
-            <div className="flex flex-col items-center gap-1.5">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black transition-all"
-                style={i < currentIdx
-                  ? { background: '#5C8374', color: '#0A0908' }
-                  : i === currentIdx
-                  ? { background: '#F5C46C', color: '#151310', boxShadow: '0 0 0 4px rgba(245,196,108,0.20)' }
-                  : { background: '#151310', color: '#8A8378', border: '1px solid rgba(245,196,108,0.10)' }}>
-                {i < currentIdx ? '✓' : i + 1}
-              </div>
-              <span className="text-[8px] font-bold"
-                style={{ color: i === currentIdx ? '#F5C46C' : i < currentIdx ? '#5C8374' : '#8A8378' }}>
-                {step}
-              </span>
-            </div>
-            {i < steps.length - 1 && (
-              <div className="flex-1 h-0.5 mx-1 rounded-full"
-                style={{ background: i < currentIdx ? '#5C8374' : 'rgba(245,196,108,0.10)' }} />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RECEIPTS TAB — Download PDF receipts for completed (RELEASED) transactions
-// ─────────────────────────────────────────────────────────────────────────────
-function ReceiptsTab({ username }: { username: string }) {
-  const [txs, setTxs]         = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res  = await fetch('/api/escrow/transactions?username=' + encodeURIComponent(username));
-        const data = await res.json();
-        const all: Transaction[] = data.transactions || [];
-        setTxs(all.filter(t => t.status === 'RELEASED'));
-      } catch { /* ignore */ }
-      finally { setLoading(false); }
-    })();
-  }, [username]);
-
-  const generatePDF = (tx: Transaction) => {
-    const isBuyer  = tx.buyerUsername === username;
-    const role     = isBuyer ? 'Buyer' : 'Seller';
-    const dateStr  = new Date(tx.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const win      = window.open('', '_blank', 'width=700,height=900');
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>PTrust Receipt – ${tx.transactionNumber}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #111; padding: 48px; }
-    .header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #f59e0b; padding-bottom: 24px; margin-bottom: 32px; }
-    .logo-circle { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg,#f59e0b,#fbbf24); display: flex; align-items: center; justify-center: center; font-family: Georgia,serif; font-size: 32px; font-weight: 900; color: #000; text-align:center; line-height:56px; }
-    .brand { font-family: Georgia,serif; font-size: 28px; font-weight: 900; color: #111; }
-    .brand span { color: #f59e0b; }
-    .sub-brand { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #888; margin-top: 2px; }
-    .title-block { text-align: center; margin-bottom: 32px; }
-    .receipt-title { font-size: 20px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: #111; }
-    .receipt-badge { display: inline-block; margin-top: 8px; padding: 4px 14px; border-radius: 999px; background: #d1fae5; color: #065f46; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-    .section { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
-    .section-title { font-size: 10px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; color: #aaa; margin-bottom: 16px; }
-    .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
-    .row:last-child { border-bottom: none; }
-    .row-label { font-size: 12px; color: #6b7280; font-weight: 500; }
-    .row-value { font-size: 13px; color: #111; font-weight: 700; }
-    .row-value.amber { color: #d97706; font-size: 15px; }
-    .row-value.green { color: #059669; }
-    .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
-    .footer p { font-size: 10px; color: #9ca3af; line-height: 1.6; }
-    .footer strong { color: #f59e0b; }
-    @media print { body { padding: 24px; } }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="logo-circle">π</div>
-    <div>
-      <div class="brand">P<span>TRUST</span></div>
-      <div class="sub-brand">Oracle · Escrow Protocol · Pi Network</div>
-    </div>
-  </div>
-  <div class="title-block">
-    <div class="receipt-title">Official Transaction Receipt</div>
-    <div class="receipt-badge">✓ Released &amp; Completed</div>
-  </div>
-  <div class="section">
-    <div class="section-title">Transaction Details</div>
-    <div class="row"><span class="row-label">Transaction #</span><span class="row-value">${tx.transactionNumber || '—'}</span></div>
-    <div class="row"><span class="row-label">Escrow Code</span><span class="row-value">${tx.escrowCode || '—'}</span></div>
-    <div class="row"><span class="row-label">Date</span><span class="row-value">${dateStr}</span></div>
-    <div class="row"><span class="row-label">Status</span><span class="row-value green">Released</span></div>
-  </div>
-  <div class="section">
-    <div class="section-title">Parties</div>
-    <div class="row"><span class="row-label">Buyer</span><span class="row-value">@${tx.buyerUsername || '—'}</span></div>
-    <div class="row"><span class="row-label">Seller</span><span class="row-value">@${tx.sellerUsername || '—'}</span></div>
-    <div class="row"><span class="row-label">Your Role</span><span class="row-value">${role}</span></div>
-  </div>
-  <div class="section">
-    <div class="section-title">Financial Summary</div>
-    <div class="row"><span class="row-label">Amount</span><span class="row-value amber">${tx.amount} π</span></div>
-    <div class="row"><span class="row-label">Platform Fee (0.1%)</span><span class="row-value">${tx.fee ?? (tx.amount * 0.001).toFixed(4)} π</span></div>
-    <div class="row"><span class="row-label">Net to Seller</span><span class="row-value">${(tx.amount - (tx.fee ?? tx.amount * 0.001)).toFixed(4)} π</span></div>
-  </div>
-  <div class="section">
-    <div class="section-title">Description</div>
-    <div style="font-size:13px;color:#374151;line-height:1.6;">${tx.description || 'No description provided.'}</div>
-  </div>
-  <div class="footer">
-    <p>This receipt is generated by <strong>PTrust Oracle</strong> — Secured on Pi Network</p>
-    <p style="margin-top:4px;">Generated on ${new Date().toLocaleString('en-US')} · For support: Riahig45@gmail.com</p>
-  </div>
-  <script>window.onload = () => window.print();<\/script>
-</body>
-</html>`);
-    win.document.close();
-  };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <div className="animate-spin h-7 w-7 border-2 border-amber-500 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <SecHead
-        Icon={FileDown}
-        title="Transaction Receipts"
-        sub="Download official receipts for completed deals"
-      />
-
-      {txs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4 text-neutral-700">
-          <FileDown size={40} className="opacity-20" />
-          <p className="text-sm font-black">No completed transactions yet</p>
-          <p className="text-[11px] text-neutral-600">Receipts appear once a deal is released</p>
-        </div>
-      ) : (
-        txs.map((tx) => {
-          const isBuyer = tx.buyerUsername === username;
-          const role    = isBuyer ? 'Buyer' : 'Seller';
-          const dateStr = new Date(tx.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-          return (
-            <Card key={tx._id} className="p-5 space-y-4">
-              {/* Top row */}
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
-                    {tx.transactionNumber || tx.escrowCode}
-                  </p>
-                  <p className="text-[10px] text-neutral-600 mt-0.5">{dateStr}</p>
-                </div>
-                <span className={`text-[8px] font-black px-2.5 py-1 rounded-lg border ${
-                  isBuyer
-                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                    : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
-                }`}>{role}</span>
-              </div>
-
-              {/* Details */}
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Amount</span>
-                  <span className="font-black text-white">{tx.amount} <span className="text-amber-400">π</span></span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Description</span>
-                  <span className="font-medium text-neutral-300 max-w-[60%] text-right truncate">{tx.description || '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Status</span>
-                  <span className="font-black text-emerald-400">✓ Released</span>
-                </div>
-              </div>
-
-              {/* Download button */}
-              <button
-                onClick={() => generatePDF(tx)}
-                className="w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-[0_8px_32px_rgba(245,158,11,0.2)]"
-              >
-                <FileDown size={14} />
-                📄 Download PDF Receipt
-              </button>
-            </Card>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ADMIN TAB — Only for GhaithriAHI96
+// ADMIN TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function AdminTab({ username }: { username: string }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -2136,705 +1752,138 @@ function AdminTab({ username }: { username: string }) {
     } catch (e: any) { setErr(e.message); }
   };
 
-  const platformStats = useMemo(() => {
-    const released = transactions.filter(t => t.status === 'RELEASED');
-    const totalPi = released.reduce((s, t) => s + (t.amount || 0), 0);
-    const totalFee = released.reduce((s, t) => s + (t.fee || 0), 0);
-    const uniqueUsers = new Set([
-      ...transactions.map(t => t.buyerUsername),
-      ...transactions.map(t => t.sellerUsername).filter(Boolean) as string[],
-    ]).size;
-    const successRate = transactions.length > 0 ? (released.length / transactions.length) * 100 : 0;
-    const avgDealSize = transactions.length > 0 ? transactions.reduce((s, t) => s + (t.amount || 0), 0) / transactions.length : 0;
-    const activeDisputes = transactions.filter(t => t.status === 'FROZEN' || t.status === 'UNDER_REVIEW').length;
-
-    return [
-      { label: 'Total Pi Transacted', value: totalPi.toLocaleString() + ' π', color: 'text-amber-400', icon: Zap },
-      { label: 'Platform Revenue',    value: totalFee.toFixed(2) + ' π',      color: 'text-emerald-400', icon: Wallet },
-      { label: 'Total Users',         value: uniqueUsers,                     color: 'text-sky-400', icon: Users },
-      { label: 'Success Rate',        value: Math.round(successRate) + '%',   color: 'text-violet-400', icon: TrendingUp },
-      { label: 'Avg Deal Size',       value: avgDealSize.toFixed(1) + ' π',   color: 'text-orange-400', icon: Activity },
-      { label: 'Active Disputes',     value: activeDisputes,                  color: 'text-rose-400', icon: AlertTriangle },
-    ];
-  }, [transactions]);
-
-  const suspiciousUsers = useMemo(() => {
-    const users = new Map<string, Transaction[]>();
-    transactions.forEach(tx => {
-      if (tx.buyerUsername) {
-        if (!users.has(tx.buyerUsername)) users.set(tx.buyerUsername, []);
-        users.get(tx.buyerUsername)!.push(tx);
-      }
-      if (tx.sellerUsername) {
-        if (!users.has(tx.sellerUsername)) users.set(tx.sellerUsername, []);
-        users.get(tx.sellerUsername)!.push(tx);
-      }
-    });
-
-    const suspicious: { username: string; reason: string; trustScore: number }[] = [];
-
-    users.forEach((userTxs, username) => {
-      const disputed = userTxs.filter(t => ['FROZEN', 'UNDER_REVIEW', 'PENDING_ADMIN'].includes(t.status)).length;
-      const refunded = userTxs.filter(t => t.status === 'REFUNDED').length;
-      const total = userTxs.length;
-      const refundRate = total > 0 ? refunded / total : 0;
-      
-      let reason = '';
-      if (disputed > 2) reason = 'Too many disputes';
-      else if (refunded > 3) reason = 'Too many refunds';
-      else if (refundRate > 0.5 && total >= 2) reason = 'High refund rate';
-
-      if (reason) {
-        suspicious.push({ username, reason, trustScore: calculateTrustScore(userTxs).score });
-      }
-    });
-
-    return suspicious;
-  }, [transactions]);
-
-  const dailyData = useMemo(() => {
-    const days: { label: string; start: number; end: number; count: number }[] = [];
-    const now = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      days.push({
-         label: d.toLocaleDateString('en-US', { weekday: 'short' }),
-         start: new Date(d.setHours(0,0,0,0)).getTime(),
-         end: new Date(d.setHours(23,59,59,999)).getTime(),
-         count: 0
-      });
-    }
-    transactions.forEach(tx => {
-      const t = new Date(tx.createdAt).getTime();
-      const day = days.find(d => t >= d.start && t <= d.end);
-      if (day) day.count++;
-    });
-    const maxCount = Math.max(...days.map(d => d.count), 1);
-    return { days, maxCount };
-  }, [transactions]);
-
-  const statusDistribution = useMemo(() => {
-    const counts = { RELEASED: 0, PENDING: 0, REFUNDED: 0, FROZEN: 0, OTHER: 0 };
-    transactions.forEach(tx => {
-      if (tx.status in counts) counts[tx.status as keyof typeof counts]++;
-      else counts.OTHER++;
-    });
-    const t = transactions.length || 1;
-    return [
-      { l: 'RELEASED', v: counts.RELEASED, p: (counts.RELEASED/t)*100, c: 'bg-emerald-500', tc: 'text-emerald-400' },
-      { l: 'PENDING',  v: counts.PENDING,  p: (counts.PENDING/t)*100,  c: 'bg-amber-500',   tc: 'text-amber-400' },
-      { l: 'REFUNDED', v: counts.REFUNDED, p: (counts.REFUNDED/t)*100, c: 'bg-sky-500',     tc: 'text-sky-400' },
-      { l: 'FROZEN',   v: counts.FROZEN,   p: (counts.FROZEN/t)*100,   c: 'bg-blue-500',    tc: 'text-blue-400' },
-    ];
-  }, [transactions]);
-
-  const topUsersMap = useMemo(() => {
-    const um = new Map<string, { count: number; pi: number; txs: Transaction[] }>();
-    transactions.forEach(tx => {
-      [tx.buyerUsername, tx.sellerUsername].filter(Boolean).forEach(u => {
-        if (!um.has(u!)) um.set(u!, { count: 0, pi: 0, txs: [] });
-        um.get(u!)!.count++;
-        um.get(u!)!.pi += tx.amount || 0;
-        um.get(u!)!.txs.push(tx);
-      });
-    });
-    return Array.from(um.entries())
-      .sort((a,b) => b[1].count - a[1].count)
-      .slice(0, 5)
-      .map(([uname, d]) => ({ uname, deals: d.count, pi: d.pi, trust: calculateTrustScore(d.txs) }));
-  }, [transactions]);
-
-  const newUsersTodayCount = useMemo(() => {
-    const firstTx = new Map<string, number>();
-    transactions.forEach(tx => {
-      const t = new Date(tx.createdAt).getTime();
-      [tx.buyerUsername, tx.sellerUsername].filter(Boolean).forEach(u => {
-        if (!firstTx.has(u!) || t < firstTx.get(u!)!) firstTx.set(u!, t);
-      });
-    });
-    const startOfToday = new Date().setHours(0,0,0,0);
-    let count = 0;
-    firstTx.forEach(time => { if (time >= startOfToday) count++; });
-    return count;
-  }, [transactions]);
-
-  const exportReport = () => {
-    const txt = `PTrust Daily Report\nGenerated: ${new Date().toISOString()}\nTotal Trans: ${transactions.length}\nNew Users Today: ${newUsersTodayCount}`;
-    const blob = new Blob([txt], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'ptrust_report.txt';
-    a.click();
-  };
-
-  const filtered = filter === 'ALL' ? transactions 
-    : filter === 'ALL_DISPUTES' ? transactions.filter(t => t.status === 'FROZEN' || t.status === 'UNDER_REVIEW')
-    : transactions.filter(t => t.status === filter);
+  const filtered = filter === 'ALL' ? transactions : transactions.filter(t => t.status === filter);
+  const FILTERS = ['ALL', 'PENDING', 'ACCEPTED', 'DELIVERED', 'FROZEN', 'RELEASED', 'REFUNDED', 'PENDING_ADMIN'];
 
   return (
-    <div className="space-y-4">
-
-      {/* Header */}
-      <div className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-red-950/40 to-violet-950/40 border border-red-500/20">
-        <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/25 flex items-center justify-center">
-          <Shield size={18} className="text-red-400" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Admin header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 22, background: 'linear-gradient(135deg, rgba(196,69,54,.15), rgba(155,138,196,.08))', border: `1px solid rgba(196,69,54,.25)` }}>
+        <div style={{ width: 44, height: 44, borderRadius: 14, background: `${C.terra}20`, border: `1px solid ${C.terra}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Shield size={20} style={{ color: C.terra }} />
         </div>
-        <div>
-          <h2 className="text-sm font-black text-red-400 tracking-widest uppercase">Admin Panel</h2>
-          <p className="text-[10px] text-neutral-600">Full control · @{username}</p>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.terra }}>Admin Panel</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Full control · @{username}</div>
         </div>
-        <button onClick={load} className="ml-auto w-8 h-8 rounded-lg bg-white/4 border border-white/6 flex items-center justify-center text-neutral-600 hover:text-red-400 transition-all">
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        <button type="button" onClick={load}
+          style={{ width: 36, height: 36, borderRadius: 12, background: C.card2, border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RefreshCw size={13} style={{ animation: loading ? 'spin 0.7s linear infinite' : 'none' }} />
         </button>
       </div>
 
-      {/* Platform Overview Section */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/20 to-violet-950/20 border border-amber-500/15 space-y-3">
-        <div className="flex items-center gap-2">
-          <BarChart3 size={16} className="text-amber-400" />
-          <h3 className="text-sm font-black text-amber-400 uppercase tracking-widest">Platform Overview</h3>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {platformStats.map((stat, i) => (
-            <div key={i} className="bg-black/40 border border-white/6 rounded-xl p-3 flex items-center justify-between">
-              <div>
-                <div className="text-[8px] uppercase text-neutral-500 tracking-wider mb-0.5">{stat.label}</div>
-                <div className={`text-sm font-black ${stat.color}`}>{stat.value}</div>
-              </div>
-              <stat.icon size={16} className={`${stat.color} opacity-80`} />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Analytics Section */}
-      <div className="p-6 rounded-2xl bg-[#1C1A17] border border-amber-500/20 space-y-6">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-amber-400" />
-            <h3 className="text-sm font-black text-amber-400 uppercase tracking-widest">Analytics</h3>
+      {/* Platform stats */}
+      {stats && (
+        <Card>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <BarChart3 size={14} style={{ color: C.gold }} />
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.gold }}>Platform Overview</span>
           </div>
-        </div>
-
-        {/* Top Users & Quick Actions Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          
-          {/* Daily Activity Chart */}
-          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-4">Last 7 Days Activity</h3>
-            <div className="flex items-end justify-between h-24 gap-1">
-              {dailyData.days.map((d, i) => (
-                <div key={i} className="flex flex-col items-center flex-1 gap-2">
-                  <div className="w-full bg-amber-500/20 rounded-sm relative overflow-hidden" style={{ height: '60px' }}>
-                    <div 
-                      className="absolute bottom-0 left-0 right-0 bg-amber-500 transition-all duration-500" 
-                      style={{ height: `${(d.count / dailyData.maxCount) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-[8px] text-neutral-600 font-bold">{d.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Quick Actions & Status */}
-          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)] space-y-3 flex flex-col justify-between h-full">
-            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-2">Quick Actions &amp; Insights</h3>
-            
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <button onClick={exportReport} className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 text-[10px] font-black transition-all flex items-center justify-center gap-1.5">
-                <FileText size={12} /> Export Report
-              </button>
-              <button onClick={() => setFilter('ALL_DISPUTES')} className="py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[10px] font-black transition-all flex items-center justify-center gap-1.5">
-                <AlertTriangle size={12} /> View All Disputes
-              </button>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <Users size={14} className="text-amber-400" />
-              </div>
-              <div>
-                <p className="text-xs font-black text-amber-400">{newUsersTodayCount} New Users Today</p>
-                <p className="text-[9px] text-amber-500/60">First-time deals initiated</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Top Users & Distribution */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Top Users */}
-          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-3">Top 5 Most Active Users</h3>
-            <div className="space-y-2">
-              {topUsersMap.map((u, i) => (
-                <div key={u.uname} className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/10">
-                  <div className="flex items-center gap-3">
-                    <div className="text-[10px] font-black text-amber-500 w-3">{i+1}.</div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-black text-white">@{u.uname}</p>
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded-full bg-black/40 border border-white/10 flex items-center gap-1`}>
-                          {u.trust.level === 'High Trust' ? '🟢' : u.trust.level === 'Medium Trust' ? '🟡' : '🔴'}
-                        </span>
-                      </div>
-                      <p className="text-[9px] text-neutral-400 mt-0.5">{u.deals} deals completed</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-black text-amber-400">{u.pi.toLocaleString()} π</p>
-                    <p className="text-[9px] text-neutral-500">volume</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Transaction Status Distribution */}
-          <div className="bg-black/40 rounded-xl p-4 border border-white/6 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-            <h3 className="text-[11px] uppercase font-black tracking-widest text-neutral-500 mb-3">Status Distribution</h3>
-            <div className="h-4 rounded-full bg-white/5 flex overflow-hidden mb-4 mt-2">
-              {statusDistribution.map(s => s.v > 0 && (
-                <div key={s.l} className={`h-full ${s.c} transition-all duration-500`} style={{ width: `${s.p}%` }} title={`${s.l}: ${s.v}`} />
-              ))}
-            </div>
-            <div className="flex justify-between items-center flex-col gap-2 pt-1 border-t border-white/5 mt-2">
-              {statusDistribution.map(s => s.v > 0 && (
-                <div key={s.l} className="flex items-center justify-between w-full py-0.5">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${s.c}`} />
-                    <span className="text-[10px] font-black text-neutral-400">{s.l}</span>
-                  </div>
-                  <div className="flex items-center gap-2 border-b border-white/5 border-dashed flex-1 mx-2" />
-                  <span className={`text-[11px] font-black ${s.tc}`}>{s.p.toFixed(1)}% <span className="text-neutral-500 font-normal">({s.v})</span></span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Fraud Detection Section */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-red-950/20 to-orange-950/20 border border-red-500/15 space-y-3">
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={16} className="text-red-400" />
-          <h3 className="text-sm font-black text-red-400 uppercase tracking-widest">Fraud Detection</h3>
-        </div>
-        
-        {suspiciousUsers.length === 0 ? (
-          <div className="text-center py-6 border border-white/5 rounded-xl bg-black/20">
-            <ShieldCheck size={20} className="mx-auto text-emerald-400 opacity-50 mb-2" />
-            <p className="text-[11px] font-black text-emerald-400">No suspicious activity detected</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {suspiciousUsers.map(su => (
-              <div key={su.username} className="bg-black/40 border border-red-500/10 rounded-xl p-3 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0">
-                    <p className="font-black text-sm truncate">@{su.username}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-black tracking-wider uppercase">
-                        {su.reason}
-                      </span>
-                      <span className="text-[9px] text-neutral-500">
-                        Trust: <span className={su.trustScore >= 71 ? 'text-emerald-400' : su.trustScore >= 41 ? 'text-amber-400' : 'text-rose-400'}>{su.trustScore}</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 border-t border-white/5 pt-2">
-                  <button onClick={() => doAction('warn', '', { target: su.username })} className="flex-1 py-1.5 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 text-[10px] font-black transition-all">
-                    Warn User
-                  </button>
-                  <button onClick={() => doAction('block', '', { target: su.username })} className="flex-1 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[10px] font-black transition-all">
-                    Block User
-                  </button>
-                </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+            {[
+              { l: 'Total Pi',  v: transactions.filter(t => t.status === 'RELEASED').reduce((s, t) => s + t.amount, 0).toFixed(3) + ' π', c: C.gold },
+              { l: 'Revenue',   v: transactions.filter(t => t.status === 'RELEASED').reduce((s, t) => s + (t.fee || t.amount * 0.001), 0).toFixed(4) + ' π', c: C.sage },
+              { l: 'Users',     v: new Set([...transactions.map(t => t.buyerUsername), ...transactions.filter(t => t.sellerUsername).map(t => t.sellerUsername!)]).size, c: C.sky },
+            ].map(s => (
+              <div key={s.l} style={{ textAlign: 'center', background: C.card2, border: `1px solid ${C.border}`, borderRadius: 14, padding: '10px 8px' }}>
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 15, color: s.c }}>{s.v}</div>
+                <div style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, marginTop: 3 }}>{s.l}</div>
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-5 gap-2">
-          {[
-            { l: 'Total',     v: stats.total,     c: 'text-white'       },
-            { l: 'Pending',   v: stats.pending,   c: 'text-amber-400'   },
-            { l: 'Delivered', v: stats.delivered, c: 'text-sky-400'     },
-            { l: 'Frozen',    v: stats.frozen,    c: 'text-blue-400'    },
-            { l: 'Released',  v: stats.released,  c: 'text-emerald-400' },
-          ].map(s => (
-            <div key={s.l} className="bg-[#1C1A17] border border-white/6 rounded-xl p-2.5 text-center">
-              <div className={'text-lg font-black ' + s.c}>{s.v}</div>
-              <div className="text-[8px] text-neutral-600 uppercase tracking-wider mt-0.5">{s.l}</div>
-            </div>
-          ))}
-        </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+            {[
+              { l: 'Total',     v: stats.total,     c: '#E8E4DC' },
+              { l: 'Pending',   v: stats.pending,   c: C.gold    },
+              { l: 'Delivered', v: stats.delivered, c: C.sky     },
+              { l: 'Frozen',    v: stats.frozen,    c: C.terra   },
+              { l: 'Released',  v: stats.released,  c: C.sage    },
+            ].map(s => (
+              <div key={s.l} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: s.c }}>{s.v}</div>
+                <div style={{ fontSize: 7, textTransform: 'uppercase', color: C.muted, marginTop: 2 }}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* Filter */}
-      <div className="flex gap-1.5 flex-wrap">
-        {['ALL', 'PENDING', 'DELIVERED', 'FROZEN', 'RELEASED', 'REFUNDED', 'PENDING_ADMIN', 'ALL_DISPUTES'].map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={'px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ' +
-              (filter === f
-                ? 'bg-red-500/20 border border-red-500/30 text-red-400'
-                : 'bg-white/4 border border-white/6 text-neutral-600 hover:text-neutral-300')}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {FILTERS.map(f => (
+          <button key={f} type="button" onClick={() => setFilter(f)}
+            style={{ padding: '5px 10px', borderRadius: 10, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', cursor: 'pointer', border: 'none', background: filter === f ? `${C.terra}20` : C.card2, color: filter === f ? C.terra : C.muted, borderWidth: 1, borderStyle: 'solid', borderColor: filter === f ? `${C.terra}30` : C.border }}>
             {f}
           </button>
         ))}
       </div>
 
-      {msg && <OkBox msg={msg} />}
+      {msg && <OkBox  msg={msg} />}
       {err && <ErrBox msg={err} />}
 
-      {/* Action Panel */}
+      {/* Action panel */}
       {selected && (
-        <div className="p-5 rounded-2xl bg-red-950/20 border border-red-500/25 space-y-4">
-          <div className="flex items-center justify-between">
+        <div style={{ padding: 18, borderRadius: 22, background: `${C.terra}08`, border: `1px solid ${C.terra}25`, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p className="text-[10px] text-neutral-500 uppercase font-black tracking-widest">Selected</p>
-              <p className="text-sm font-black text-red-400 font-mono">{selected.escrowCode}</p>
-              <p className="text-[10px] text-neutral-500">{selected.amount} Pi · @{selected.buyerUsername}</p>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.1em', color: C.muted }}>Selected</div>
+              <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 13, color: C.terra, marginTop: 3 }}>{selected.escrowCode}</div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{selected.amount} π · @{selected.buyerUsername}</div>
             </div>
-            <button onClick={() => setSelected(null)} className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center text-neutral-600 hover:text-white">
-              <XCircle size={13} />
+            <button type="button" onClick={() => setSelected(null)}
+              style={{ width: 32, height: 32, borderRadius: 10, background: C.card2, border: `1px solid ${C.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted }}>
+              <XCircle size={14} />
             </button>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[9px] uppercase font-black tracking-[0.15em] text-amber-500/80">Reason / Note</label>
-            <input placeholder="Reason for this action…" value={reason} onChange={e => setReason(e.target.value)}
-              className="w-full bg-black/60 border border-white/8 rounded-xl py-3 px-4 focus:border-amber-500/50 outline-none text-sm transition-all placeholder-neutral-700 text-neutral-200" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => doAction('refund', selected.escrowCode)}
-              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-black hover:bg-emerald-500/15 transition-all flex items-center justify-center gap-1.5">
-              <ArrowRight size={12} /> Refund to Buyer
-            </button>
-            <button onClick={() => doAction('freeze', selected.escrowCode)}
-              className="py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-black hover:bg-blue-500/15 transition-all flex items-center justify-center gap-1.5">
-              <Lock size={12} /> Freeze
-            </button>
-            <button onClick={() => doAction('resolve', selected.escrowCode, { resolveFor: 'seller' })}
-              className="py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-black hover:bg-amber-500/15 transition-all flex items-center justify-center gap-1.5">
-              <CheckCircle2 size={12} /> Release to Seller
-            </button>
-            <button onClick={() => doAction('resolve', selected.escrowCode, { resolveFor: 'buyer' })}
-              className="py-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[11px] font-black hover:bg-violet-500/15 transition-all flex items-center justify-center gap-1.5">
-              <Shield size={12} /> Resolve for Buyer
-            </button>
+          <Field label="Reason / Note">
+            <InputBase placeholder="Reason for this action…" value={reason} onChange={e => setReason(e.target.value)} />
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { label: 'Refund to Buyer',    action: 'refund',  extra: {},                      c: C.sage    },
+              { label: 'Freeze',             action: 'freeze',  extra: {},                      c: C.sky     },
+              { label: 'Release to Seller',  action: 'resolve', extra: { resolveFor: 'seller' }, c: C.gold   },
+              { label: 'Resolve for Buyer',  action: 'resolve', extra: { resolveFor: 'buyer'  }, c: C.violet },
+            ].map(({ label, action, extra, c }) => (
+              <button key={label} type="button" onClick={() => doAction(action, selected.escrowCode, extra)}
+                style={{ padding: '11px 8px', borderRadius: 14, fontSize: 11, fontWeight: 800, cursor: 'pointer', background: `${c}12`, border: `1px solid ${c}30`, color: c }}>
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* List */}
       {loading && (
-        <div className="flex justify-center py-10">
-          <div className="animate-spin h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full" />
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
+          <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${C.terra}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
         </div>
       )}
 
       {filtered.map(tx => (
-        <div key={tx._id}
-          onClick={() => setSelected(selected?.escrowCode === tx.escrowCode ? null : tx)}
-          className={'p-4 rounded-2xl border cursor-pointer transition-all space-y-2 ' +
-            (selected?.escrowCode === tx.escrowCode
-              ? 'border-red-500/40 bg-red-950/15'
-              : 'border-white/6 bg-[#1C1A17] hover:border-white/12')}>
-          <div className="flex items-center justify-between">
-            <span className="font-black text-[11px] font-mono text-red-400/80">{tx.transactionNumber || tx.escrowCode}</span>
+        <div key={tx._id} onClick={() => setSelected(selected?.escrowCode === tx.escrowCode ? null : tx)}
+          style={{ padding: 16, borderRadius: 22, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8, transition: 'all .15s', background: selected?.escrowCode === tx.escrowCode ? `${C.terra}10` : C.card, border: `1px solid ${selected?.escrowCode === tx.escrowCode ? `${C.terra}40` : C.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: `${C.terra}90` }}>{tx.transactionNumber || tx.escrowCode}</span>
             <StatusBadge status={tx.status} />
           </div>
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-neutral-600">@{tx.buyerUsername} → @{tx.sellerUsername || '?'}</span>
-            <span className="font-black text-white">{tx.amount} <span className="text-amber-400">Pi</span></span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10 }}>
+            <span style={{ color: C.muted }}>@{tx.buyerUsername} → @{tx.sellerUsername || '?'}</span>
+            <span style={{ fontWeight: 800, color: '#E8E4DC' }}>{tx.amount} <span style={{ color: C.gold }}>π</span></span>
           </div>
-          {tx.description && <p className="text-[9px] text-neutral-700 truncate">{tx.description}</p>}
-          <div className="text-[9px] text-neutral-700">
-            {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </div>
+          {tx.description && <div style={{ fontSize: 9, color: `${C.muted}70`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.description}</div>}
+          <div style={{ fontSize: 9, color: `${C.muted}50` }}>{new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
         </div>
       ))}
 
       {!loading && filtered.length === 0 && (
-        <div className="text-center py-16 text-neutral-700">
-          <Shield size={28} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-black">No transactions</p>
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, opacity: 0.2 }}>
+            <Shield size={32} style={{ color: C.terra }} />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#E8E4DC' }}>No transactions</div>
         </div>
       )}
-
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROFILE TAB
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ProfileTab({ username }: { username: string }) {
-  const [txs, setTxs]           = useState<Transaction[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res  = await fetch(`/api/escrow/transactions?username=${encodeURIComponent(username)}`);
-        const data = await res.json();
-        if (data.success) setTxs(data.transactions ?? []);
-        else setError(data.error ?? 'Failed to load');
-      } catch { setError('Network error'); }
-      finally { setLoading(false); }
-    })();
-  }, [username]);
-
-  // ── Derived stats ──────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    const total     = txs.length;
-    const asBuyer   = txs.filter(t => t.buyerUsername === username).length;
-    const asSeller  = txs.filter(t => t.sellerUsername === username).length;
-    const completed = txs.filter(t => t.status === 'RELEASED').length;
-    const trustData = calculateTrustScore(txs);
-
-    const ratings   = txs.map(t => t.rating).filter((r): r is number => r != null);
-    const avgRating = ratings.length > 0
-      ? ratings.reduce((a, b) => a + b, 0) / ratings.length
-      : null;
-
-    // Member since: oldest transaction date, or today
-    const oldest = txs.length > 0
-      ? new Date(txs[txs.length - 1].createdAt)
-      : new Date();
-    const memberSince = oldest.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-    // Badge
-    const badge =
-      total >= 20 ? { label: 'Elite Merchant', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20', emoji: '💎' }
-      : total >= 5  ? { label: 'Trusted Trader',  color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', emoji: '🤝' }
-      :              { label: 'New Pioneer',       color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',   emoji: '🚀' };
-
-    return { total, asBuyer, asSeller, completed, trustData, avgRating, memberSince, badge, ratings };
-  }, [txs, username]);
-
-  const recent = txs.slice(0, 5);
-  const [showTrustDetails, setShowTrustDetails] = useState(false);
-
-  return (
-    <div className="space-y-4">
-
-      {/* ── Fraud Warnings ── */}
-      {!loading && stats.trustData.score < 30 && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
-          <AlertTriangle size={16} className="flex-shrink-0" />
-          <p className="text-sm font-black">⚠️ Low trust user - proceed with caution</p>
-        </div>
-      )}
-      {!loading && stats.trustData.disputed > 2 && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400">
-          <AlertCircle size={16} className="flex-shrink-0" />
-          <p className="text-sm font-black">Multiple disputes detected</p>
-        </div>
-      )}
-
-      {/* ── Avatar + identity card ── */}
-      <Card className="p-6">
-        <div className="flex flex-col items-center text-center gap-4">
-          {/* Large avatar */}
-          <div className="relative">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-black font-black text-3xl shadow-[0_8px_32px_rgba(245,158,11,0.35)]">
-              {username.charAt(0).toUpperCase()}
-            </div>
-            {/* Badge pip */}
-            <div className={'absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full border text-[9px] font-black ' + stats.badge.bg + ' ' + stats.badge.color}>
-              {stats.badge.emoji} {stats.badge.label}
-            </div>
-          </div>
-
-          {/* Name + member since */}
-          <div>
-            <p className="text-lg font-black text-white">@{username}</p>
-            <p className="text-[10px] text-neutral-600 mt-0.5">
-              <span className="text-amber-500/60 font-black">Member since</span> {stats.memberSince}
-            </p>
-          </div>
-
-          {/* Smart Trust Score Component */}
-          {loading ? (
-            <div className="w-full h-32 rounded-xl bg-white/4 animate-pulse mt-4" />
-          ) : (
-            <div className="w-full mt-4 bg-[#1C1A17] rounded-2xl p-4 border border-white/4">
-              <div className="relative w-28 h-28 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-full h-full transform -rotate-90">
-                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8" className="text-white/5" />
-                  <circle cx="56" cy="56" r="46" fill="transparent" stroke="currentColor" strokeWidth="8"
-                    className={stats.trustData.score >= 71 ? 'text-emerald-500' : stats.trustData.score >= 41 ? 'text-amber-500' : 'text-rose-500'}
-                    strokeDasharray={2 * Math.PI * 46}
-                    strokeDashoffset={(2 * Math.PI * 46) * (1 - stats.trustData.score / 100)}
-                    strokeLinecap="round" style={{ transition: 'stroke-dashoffset 1s ease-in-out' }} />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className={`text-3xl font-black ${stats.trustData.color}`}>{stats.trustData.score}</span>
-                </div>
-              </div>
-
-              <div className="text-center mb-4">
-                <div className={`text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 bg-white/5 rounded-full inline-block border border-white/10 ${stats.trustData.color}`}>
-                  {stats.trustData.level}
-                </div>
-              </div>
-
-              {/* Expandable Details */}
-              <div className="border-t border-white/5 pt-3 mt-3">
-                <button 
-                  onClick={() => setShowTrustDetails(!showTrustDetails)}
-                  className="w-full flex items-center justify-between text-[11px] font-black text-neutral-400 hover:text-white transition-colors"
-                >
-                  How is this computed?
-                  <ChevronDown size={14} className={`transition-transform duration-200 ${showTrustDetails ? 'rotate-180' : ''}`} />
-                </button>
-                {showTrustDetails && (
-                  <div className="mt-3 space-y-1.5 px-2">
-                    <div className="text-[10px] text-neutral-500 mb-2 border-b border-white/5 pb-2 text-left">
-                      Base Score: <span className="text-white">50</span>
-                    </div>
-                    {stats.trustData.details.map((detail, i) => {
-                      const isPos = detail.startsWith('+');
-                      return (
-                        <div key={i} className="flex items-start gap-1.5 text-left">
-                          <span className={`text-[10px] font-black flex-shrink-0 ${isPos ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {isPos ? '+' : '-'}
-                          </span>
-                          <span className="text-[10px] text-neutral-300 leading-relaxed">
-                            {detail.substring(1)}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <p className="text-[9px] text-neutral-600 text-center mt-4">
-                Score updates automatically with each transaction
-              </p>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* ── Stats grid ── */}
-      <div className="grid grid-cols-4 gap-2">
-        {[
-          { l: 'Total Deals',  v: stats.total,     c: 'text-white'       },
-          { l: 'Completed',    v: stats.completed,  c: 'text-emerald-400' },
-          { l: 'As Buyer',     v: stats.asBuyer,    c: 'text-amber-400'   },
-          { l: 'As Seller',    v: stats.asSeller,   c: 'text-sky-400'     },
-        ].map(s => (
-          <div key={s.l} className="bg-[#1C1A17] border border-white/6 rounded-xl py-3.5 text-center">
-            <div className={'text-xl font-black ' + s.c}>
-              {loading ? <div className="h-6 w-8 mx-auto rounded-lg bg-white/6 animate-pulse" /> : s.v}
-            </div>
-            <div className="text-[8px] text-neutral-600 uppercase tracking-wider mt-1 leading-tight px-1">{s.l}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Average rating ── */}
-      {!loading && stats.avgRating !== null && (
-        <Card className="px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
-                <Star size={14} className="text-amber-400" fill="currentColor" />
-              </div>
-              <div>
-                <p className="text-[11px] font-black text-white">Average Rating</p>
-                <p className="text-[9px] text-neutral-600">{stats.ratings.length} rating{stats.ratings.length !== 1 ? 's' : ''} received</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl font-black text-amber-400">{stats.avgRating.toFixed(1)}</span>
-              <div className="flex gap-0.5">
-                {[1,2,3,4,5].map(n => (
-                  <Star key={n} size={12}
-                    className={n <= Math.round(stats.avgRating!) ? 'text-amber-400' : 'text-neutral-700'}
-                    fill={n <= Math.round(stats.avgRating!) ? 'currentColor' : 'none'}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* ── Error state ── */}
-      {error && <ErrBox msg={error} />}
-
-      {/* ── Recent transactions ── */}
-      <Card className="overflow-hidden">
-        <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-white/5">
-          <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
-            <ClipboardList size={14} className="text-amber-400" />
-          </div>
-          <div className="flex-1">
-            <p className="text-[12px] font-black text-white">Recent Deals</p>
-            <p className="text-[10px] text-neutral-600">Last {Math.min(5, txs.length)} transactions</p>
-          </div>
-        </div>
-
-        {loading && (
-          <div className="flex justify-center py-10">
-            <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
-          </div>
-        )}
-
-        {!loading && recent.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 gap-3 text-neutral-700">
-            <User size={28} className="opacity-20" />
-            <p className="text-sm font-black">No transactions yet</p>
-            <p className="text-[11px]">Start your first deal in the Buyer tab</p>
-          </div>
-        )}
-
-        {!loading && recent.length > 0 && (
-          <div className="divide-y divide-white/4">
-            {recent.map((tx, i) => {
-              const isBuyer = tx.buyerUsername === username;
-              return (
-                <div key={tx._id ?? i} className="px-5 py-3.5 flex items-center gap-3">
-                  {/* Role pill */}
-                  <span className={'text-[8px] font-black px-2 py-1 rounded-lg border flex-shrink-0 ' +
-                    (isBuyer
-                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                      : 'bg-sky-500/10 border-sky-500/20 text-sky-400')}>
-                    {isBuyer ? 'Buyer' : 'Seller'}
-                  </span>
-                  {/* Details */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-black text-white font-mono truncate">
-                      {tx.transactionNumber || tx.escrowCode}
-                    </p>
-                    <p className="text-[9px] text-neutral-600 truncate">
-                      {new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                  </div>
-                  {/* Amount + status */}
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-[11px] font-black text-white">{tx.amount} <span className="text-amber-400">π</span></p>
-                    <StatusBadge status={tx.status} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
     </div>
   );
 }
@@ -2844,124 +1893,126 @@ function ProfileTab({ username }: { username: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
   const isOnline = useOnlineStatus();
-  const [tab, setTab] = useState<'home' | 'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin'>('home'); const username = user.username; const isAdmin = username === 'GhaithriAHI96';
+  const [tab, setTab] = useState<'home' | 'buyer' | 'seller' | 'transactions' | 'receipts' | 'stats' | 'chat' | 'profile' | 'admin'>('home');
+  const username = user.username;
+  const isAdmin  = username === 'GhaithriAHI96';
 
-  // For deep-linking from transactions tab
-  const navigate = useCallback((dest: string, code?: string) => {
-    setTab('buyer');
-    // code is available for pre-filling — handled inside BuyerTab via state lifting if needed
-  }, []);
+  const ICONS = [
+    { key: 'buyer',        label: 'Buyer',    emoji: '🔒', bg: `linear-gradient(160deg, #2B2419, ${C.card})` },
+    { key: 'seller',       label: 'Seller',   emoji: '📦', bg: `linear-gradient(160deg, #1A2329, ${C.card})` },
+    { key: 'transactions', label: 'Deals',    emoji: '🤝', bg: `linear-gradient(160deg, #1F271F, ${C.card})` },
+    { key: 'receipts',     label: 'Receipts', emoji: '📄', bg: `linear-gradient(160deg, #2B2419, ${C.card})` },
+    { key: 'stats',        label: 'Stats',    emoji: '📊', bg: `linear-gradient(160deg, #211D2B, ${C.card})` },
+    { key: 'chat',         label: 'Chat',     emoji: '💬', bg: `linear-gradient(160deg, #1A2329, ${C.card})` },
+    { key: 'profile',      label: 'Profile',  emoji: '👤', bg: `linear-gradient(160deg, #2B2419, ${C.card})` },
+    ...(isAdmin ? [{ key: 'admin', label: 'Admin', emoji: '🛡️', bg: `linear-gradient(160deg, #2B1A19, ${C.card})` }] : []),
+  ] as const;
 
   return (
-    <main className="min-h-screen flex flex-col items-center text-white pb-28" style={{ background:"#0A0908" }}>
-      <div className="fixed top-0 left-0 right-0 h-[200px] pointer-events-none" style={{ background:"radial-gradient(ellipse at 50% -30%,rgba(245,196,108,0.06),transparent 70%)" }} />
+    <main style={{ minHeight: '100vh', background: C.bg, color: '#E8E4DC', paddingBottom: 40 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }`}</style>
 
-      <div className="w-full max-w-lg px-4 mt-6 space-y-4 relative">
+      {/* Subtle top glow */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 200, background: `radial-gradient(ellipse at 50% -30%, rgba(245,196,108,.06), transparent 70%)`, pointerEvents: 'none', zIndex: 0 }} />
 
-        {/* ── Offline banner — isOnline set at top of App ── */}
+      <div style={{ maxWidth: 440, margin: '0 auto', padding: '24px 16px 0', position: 'relative', zIndex: 1 }}>
+
+        {/* Offline banner */}
         {!isOnline && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[11px] font-black"
-            style={{ background:'rgba(196,69,54,.12)', color:'#C44536', border:'1px solid rgba(196,69,54,.30)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 16, fontSize: 11, fontWeight: 800, marginBottom: 16, background: 'rgba(196,69,54,.12)', color: C.terra, border: `1px solid rgba(196,69,54,.30)` }}>
             <span>📡</span> No internet connection — some features may not work
           </div>
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between py-1">
-          <div className="flex items-center gap-3">
-            <div style={{ width:40, height:40, borderRadius:'50%', flexShrink:0, background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)', boxShadow:'0 2px 8px rgba(0,0,0,.45),inset 0 1px 2px rgba(255,255,255,.28)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <span style={{ fontFamily:"'Fraunces',serif", fontWeight:900, fontSize:17, color:'#151310' }}>π</span>
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Seal size={42} />
             <div>
-              <h1 className="text-xl font-black tracking-[-0.03em]" style={{ fontFamily: "'Fraunces', serif" }}>
-                P<span style={{ color:'#F5C46C' }}>TRUST</span>
+              <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22, lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
+                P<span style={{ color: C.gold }}>TRUST</span>
               </h1>
-              <p className="text-[10px] tracking-wide" style={{ color:'#8A8378' }}>@{user.username}</p>
+              <p style={{ fontSize: 10, color: C.muted, margin: 0, marginTop: 2 }}>@{username}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black" style={{ background: "linear-gradient(135deg,#F5C46C,#B8893E)", color: "#151310" }}>
-              {user.username.charAt(0).toUpperCase()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {tab !== 'home' && (
+              <button type="button" onClick={() => setTab('home')}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 12, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: C.card2, border: `1px solid ${C.border}`, color: C.muted }}>
+                <Home size={12} /> Home
+              </button>
+            )}
+            <div style={{ width: 36, height: 36, borderRadius: 14, background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: C.card }}>
+              {username.charAt(0).toUpperCase()}
             </div>
-            <button
-              onClick={onLogout}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center transition-all" style={{ background:"#1C1A17", border:"1px solid rgba(245,196,108,0.10)", color:"#8A8378" }}
-              title="Sign out">
-              <LogOut size={13} />
+            <button type="button" onClick={onLogout}
+              style={{ width: 36, height: 36, borderRadius: 14, background: C.card2, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.muted }}>
+              <LogOut size={14} />
             </button>
           </div>
         </div>
 
-        {/* Tab bar — 2 rows: top 3 + bottom 3 (or 4) */}
-        {/* ── Icon Grid Home Screen ── */}
+        {/* HOME — Icon Grid */}
         {tab === 'home' && (
-          <div className="space-y-5 pt-2">
-            {/* First-time user tip */}
-            <div className="flex items-start gap-3 p-4 rounded-2xl"
-              style={{ background:'rgba(245,196,108,0.06)', border:'1px solid rgba(245,196,108,0.12)' }}>
-              <span className="text-lg flex-shrink-0">💡</span>
+          <div>
+            {/* Onboarding tip */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 18, marginBottom: 20, background: `rgba(245,196,108,.06)`, border: `1px solid rgba(245,196,108,.12)` }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>💡</span>
               <div>
-                <p className="text-[11px] font-black text-white">New to PTrust?</p>
-                <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color:'#8A8378' }}>
-                  Tap <strong style={{ color:'#F5C46C' }}>Buyer</strong> to create a secure escrow deal, or <strong style={{ color:'#6FA8C9' }}>Seller</strong> to accept one. Your funds stay locked until both parties confirm.
-                </p>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#E8E4DC' }}>New to PTrust?</div>
+                <div style={{ fontSize: 10, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+                  Tap <strong style={{ color: C.gold }}>Buyer</strong> to create a secure escrow deal, or <strong style={{ color: C.sky }}>Seller</strong> to accept one. Your funds stay locked until both parties confirm.
+                </div>
               </div>
             </div>
-            <p className="text-[10px] font-black uppercase tracking-widest px-1" style={{ color: '#8A8378' }}>Quick Access</p>
-            <div className="grid grid-cols-3 gap-4">
-              {([
-                { key: 'buyer',        label: 'Buyer',    emoji: '🔒', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
-                { key: 'seller',       label: 'Seller',   emoji: '📦', bg: 'linear-gradient(160deg,#1A2329,#151310)' },
-                { key: 'transactions', label: 'Deals',    emoji: '🤝', bg: 'linear-gradient(160deg,#1F271F,#151310)' },
-                { key: 'receipts',     label: 'Receipts', emoji: '📄', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
-                { key: 'stats',        label: 'Stats',    emoji: '📊', bg: 'linear-gradient(160deg,#211D2B,#151310)' },
-                { key: 'chat',         label: 'Chat',     emoji: '💬', bg: 'linear-gradient(160deg,#1A2329,#151310)' },
-                { key: 'profile',      label: 'Profile',  emoji: '👤', bg: 'linear-gradient(160deg,#2B2419,#151310)' },
-                ...(isAdmin ? [{ key: 'admin' as const, label: 'Admin', emoji: '🛡️', bg: 'linear-gradient(160deg,#2B1A19,#151310)' }] : []),
-              ] as const).map(({ key, label, emoji, bg }) => (
-                <button key={key} onClick={() => setTab(key)}
-                  className="flex flex-col items-center gap-3 group active:scale-95 transition-all duration-150">
-                  <div className="w-full aspect-square flex items-center justify-center group-hover:scale-105 transition-transform duration-200"
-                    style={{ background: bg, border: `1px solid ${key === 'admin' ? 'rgba(196,69,54,0.2)' : 'rgba(245,196,108,0.10)'}`, borderRadius: 22, boxShadow: '0 6px 20px rgba(0,0,0,.4),inset 0 1px 1px rgba(255,255,255,.04)', fontSize: 34 }}>
+
+            <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.18em', color: C.muted, marginBottom: 14 }}>Quick Access</div>
+
+            {/* Icons 3×3 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+              {ICONS.map(({ key, label, emoji, bg }) => (
+                <button key={key} type="button" onClick={() => setTab(key as any)}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  <div style={{
+                    width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 36, borderRadius: 22,
+                    background: bg,
+                    border: `1px solid ${key === 'admin' ? `rgba(196,69,54,.20)` : C.border}`,
+                    boxShadow: '0 6px 20px rgba(0,0,0,.4), inset 0 1px 1px rgba(255,255,255,.04)',
+                    transition: 'transform .15s',
+                  }}>
                     {emoji}
                   </div>
-                  <span className="text-[12px] font-bold" style={{ color: key === 'admin' ? '#C44536' : '#D8D2C5' }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: key === 'admin' ? C.terra : '#D8D2C5' }}>{label}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* ── Back button when inside a section ── */}
-        {tab !== 'home' && (
-          <button onClick={() => setTab('home')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black transition-all"
-            style={{ background: '#1C1A17', border: '1px solid rgba(245,196,108,0.10)', color: '#8A8378' }}>
-            <Home size={12} /> Home
-          </button>
-        )}
-
         {/* Tab content */}
-        {tab === 'buyer'        && <BuyerTab        user={user} />}
-        {tab === 'seller'       && <SellerTab        user={user} />}
-        {tab === 'transactions' && <TransactionsTab  user={user} onNavigate={navigate} />}
-        {tab === 'receipts'     && <ReceiptsTab      username={username} />}
-        {tab === 'stats'        && <StatsTab         user={user} />}
-        {tab === 'chat'         && <ChatTab          username={username} />}
-        {tab === 'profile'      && <ProfileTab       username={username} />}
-        {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
+        <div style={{ marginTop: tab !== 'home' ? 0 : 0 }}>
+          {tab === 'buyer'        && <BuyerTab        user={user} />}
+          {tab === 'seller'       && <SellerTab        user={user} />}
+          {tab === 'transactions' && <TransactionsTab  user={user} />}
+          {tab === 'receipts'     && <ReceiptsTab      username={username} />}
+          {tab === 'stats'        && <StatsTab         user={user} />}
+          {tab === 'chat'         && <ChatTab          username={username} />}
+          {tab === 'profile'      && <ProfileTab       username={username} />}
+          {tab === 'admin'        && isAdmin && <AdminTab username={username} />}
+        </div>
       </div>
     </main>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ROOT COMPONENT — uses PiSDKProvider
+// ROOT EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const { user, loading, authenticateUser } = usePiSDK();
-  const [expired, setExpired] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [expired, setExpired]   = useState(false);
+  const [mounted, setMounted]   = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -2970,43 +2021,36 @@ export default function HomePage() {
 
   if (!mounted) return null;
 
-  if (expired) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6 bg-[#0A0908] text-white">
-        <div className="text-center space-y-6 max-w-xs w-full">
-          <div style={{ width:64,height:64,borderRadius:'50%',background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto' }}>
-            <span style={{ fontFamily:"'Fraunces',serif",fontWeight:900,fontSize:26,color:'#151310' }}>π</span>
-          </div>
-          <div>
-            <h2 className="text-2xl font-black" style={{ fontFamily:"'Fraunces',serif" }}>Session Expired</h2>
-            <p className="text-sm mt-2 leading-relaxed" style={{ color:'#8A8378' }}>
-              You were inactive for 30 minutes. Please sign in again.
-            </p>
-          </div>
-          <PrimaryBtn onClick={() => { setExpired(false); authenticateUser(); }}>
-            <span style={{ fontSize:18 }}>π</span> Sign In Again
-          </PrimaryBtn>
+  if (expired) return (
+    <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: C.bg, color: '#E8E4DC' }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{ textAlign: 'center', maxWidth: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+        <Seal size={64} />
+        <div>
+          <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 26, margin: '0 0 8px' }}>Session Expired</h2>
+          <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: 0 }}>You were inactive for 30 minutes. Please sign in again.</p>
         </div>
-      </main>
-    );
-  }
+        <PrimaryBtn onClick={() => { setExpired(false); authenticateUser(); }}>
+          <span style={{ fontSize: 18 }}>π</span> Sign In Again
+        </PrimaryBtn>
+      </div>
+    </main>
+  );
 
-  if (loading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-[#0A0908]">
-        <div className="flex flex-col items-center gap-4">
-          <div style={{ width:72,height:72,borderRadius:'50%',background:'radial-gradient(circle at 35% 30%,#F5C46C,#B8893E 70%)',boxShadow:'0 4px 16px rgba(0,0,0,.5),inset 0 1px 2px rgba(255,255,255,.3)',display:'flex',alignItems:'center',justifyContent:'center' }}>
-            <span style={{ fontFamily:"'Fraunces',serif",fontWeight:900,fontSize:30,color:'#151310' }}>π</span>
-          </div>
-          <h1 className="text-4xl font-black text-white" style={{ fontFamily: "'Fraunces', serif" }}>
-            P<span style={{ color:'#F5C46C' }}>TRUST</span>
-          </h1>
-          <div className="animate-spin h-7 w-7 border-2 border-t-transparent rounded-full" style={{ borderColor:'#F5C46C' }} />
-          <p className="text-[11px] uppercase tracking-[0.3em]" style={{ color:'#8A8378' }}>Connecting to Pi Network…</p>
-        </div>
-      </main>
-    );
-  }
+  if (loading) return (
+    <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.bg }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+        <Seal size={72} />
+        <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 36, color: '#E8E4DC', margin: 0 }}>
+          P<span style={{ color: C.gold }}>TRUST</span>
+        </h1>
+        <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${C.gold}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+        <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.3em', color: C.muted, margin: 0 }}>Connecting to Pi Network…</p>
+      </div>
+    </main>
+  );
 
   if (!user) return <Landing onLogin={authenticateUser} loading={loading} />;
-  return <App user={user} onLogout={() => window.location.reload()} />;}
+  return <App user={user} onLogout={() => window.location.reload()} />;
+}
