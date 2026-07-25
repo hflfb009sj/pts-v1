@@ -1975,7 +1975,7 @@ function App({ user, onLogout }: { user: PiUser; onLogout: () => void }) {
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                   <div style={{
                     width: '100%', paddingBottom: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, borderRadius: 22,
+                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, borderRadius: 22,
                     background: bg,
                     border: `1px solid ${key === 'admin' ? `rgba(196,69,54,.20)` : C.border}`,
                     boxShadow: '0 6px 20px rgba(0,0,0,.4), inset 0 1px 1px rgba(255,255,255,.04)',
