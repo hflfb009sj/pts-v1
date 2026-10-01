@@ -1,0 +1,18 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/admin/route": "app/api/admin/route.js",
+  "/api/auth/pi/route": "app/api/auth/pi/route.js",
+  "/api/escrow/accept/route": "app/api/escrow/accept/route.js",
+  "/api/escrow/auto-release/route": "app/api/escrow/auto-release/route.js",
+  "/api/escrow/complete/route": "app/api/escrow/complete/route.js",
+  "/api/escrow/create/route": "app/api/escrow/create/route.js",
+  "/api/escrow/dispute/route": "app/api/escrow/dispute/route.js",
+  "/api/escrow/evidence/route": "app/api/escrow/evidence/route.js",
+  "/api/escrow/finalize/route": "app/api/escrow/finalize/route.js",
+  "/api/escrow/rate/route": "app/api/escrow/rate/route.js",
+  "/api/escrow/release/route": "app/api/escrow/release/route.js",
+  "/api/escrow/transaction/[code]/route": "app/api/escrow/transaction/[code]/route.js",
+  "/api/escrow/transactions/route": "app/api/escrow/transactions/route.js",
+  "/api/messages/route": "app/api/messages/route.js",
+  "/page": "app/page.js"
+}
